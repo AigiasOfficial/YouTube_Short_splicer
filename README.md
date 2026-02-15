@@ -45,22 +45,6 @@ Double-click `start_app.bat` to launch the application. Here is what it does:
 
 ---
 
-## Linux / macOS Installation
-
-If you are on a Unix-based system, use the provided shell scripts instead.
-
-1.  **Setup:**
-    ```bash
-    chmod +x setup.sh start.sh
-    ./setup.sh
-    ```
-2.  **Run:**
-    ```bash
-    ./start.sh
-    ```
-
----
-
 ## How to Use
 
 1.  **Select Video:** Click "Select Video File" to load an MP4 from your computer.
