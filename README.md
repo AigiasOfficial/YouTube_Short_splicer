@@ -77,4 +77,5 @@ To verify the application logic, you can run the automated test suite.
 
 - **"Python not found":** Ensure you added Python to your system PATH during installation. You might need to reinstall Python and check that box.
 - **"FFmpeg failed":** If the generated video is 0 bytes or errors occur, check the "Backend" command window for detailed error logs.
+  - *Common error:* "Stream specifier ':a' in filtergraph... matches no streams." This happens if your source video has no audio. Ensure your input MP4 has an audio track, or the splicing will fail.
 - **Browser doesn't open:** Manually navigate to `http://localhost:5173`.
