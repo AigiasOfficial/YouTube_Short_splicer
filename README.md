@@ -64,6 +64,15 @@ Double-click `start_app.bat` to launch the application. Here is what it does:
         - **Stitches** them together.
     - The final video (`short_....mp4`) will automatically download.
 
+## Running Tests
+
+To verify the application logic, you can run the automated test suite.
+
+### Windows
+1.  Double-click `run_tests.bat`.
+    - This will run the Python backend tests (using `pytest`) and the React frontend tests (using `vitest`).
+    - Note: It will install `pytest` and `httpx` in your virtual environment if they are missing.
+
 ## Troubleshooting
 
 - **"Python not found":** Ensure you added Python to your system PATH during installation. You might need to reinstall Python and check that box.
