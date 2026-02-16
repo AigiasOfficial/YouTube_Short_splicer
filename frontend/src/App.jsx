@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import ReactPlayer from 'react-player';
-import { Play, Pause, Scissors, Trash2, Download, Plus, Clock, FileVideo, AlertCircle } from 'lucide-react';
+import { Play, Pause, Scissors, Trash2, Download, Plus, Clock, FileVideo, AlertCircle, Info, RefreshCw } from 'lucide-react';
 import clsx from 'clsx';
 
 function App() {
@@ -13,27 +13,38 @@ function App() {
   const [markStart, setMarkStart] = useState(null);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState(null);
-  
+  const [debugInfo, setDebugInfo] = useState(null);
+  const [useNativePlayer, setUseNativePlayer] = useState(false);
+
   const playerRef = useRef(null);
+  const nativeVideoRef = useRef(null);
 
   const handleFileChange = (event) => {
     const file = event.target.files[0];
     if (file) {
       console.log("Selected file:", file.name, file.type, file.size);
       
-      // Revoke previous URL to avoid memory leaks
       if (videoSrc) {
         URL.revokeObjectURL(videoSrc);
       }
 
+      const newSrc = URL.createObjectURL(file);
       setVideoFile(file);
-      setVideoSrc(URL.createObjectURL(file));
+      setVideoSrc(newSrc);
       setSegments([]);
       setMarkStart(null);
       setError(null);
       setPlaying(false);
       setCurrentTime(0);
       setDuration(0);
+      
+      // Detailed Debug Info
+      setDebugInfo({
+        name: file.name,
+        type: file.type || "unknown",
+        size: (file.size / (1024 * 1024)).toFixed(2) + " MB",
+        url: newSrc
+      });
     }
   };
 
@@ -42,20 +53,39 @@ function App() {
   };
 
   const handleDuration = (d) => {
+    console.log("Video Duration Loaded:", d);
     setDuration(d);
+    if (error) setError(null); // Clear error if duration loads successfully
+  };
+
+  const handleError = (e) => {
+    console.error("Video Error:", e);
+    
+    let msg = "Failed to load video.";
+    if (e && e.target && e.target.error) {
+        const code = e.target.error.code;
+        const message = e.target.error.message;
+        msg += ` Code: ${code} (${message})`;
+        
+        if (code === 3) msg += " (Decoding Error - Codec issue?)";
+        if (code === 4) msg += " (Not Supported - Format issue?)";
+    } else {
+        msg += " The format (e.g., MKV, HEVC/H.265) might not be supported by your browser.";
+    }
+    setError(msg);
   };
 
   const seekRelative = useCallback((seconds) => {
-    if (playerRef.current) {
+    if (useNativePlayer && nativeVideoRef.current) {
+        nativeVideoRef.current.currentTime += seconds;
+    } else if (playerRef.current) {
       const current = playerRef.current.getCurrentTime();
       playerRef.current.seekTo(current + seconds, 'seconds');
     }
-  }, []);
+  }, [useNativePlayer]);
 
   const handleKeyDown = useCallback((e) => {
-    // Only handle if video is loaded and not typing in an input
     if (!videoSrc) return;
-    
     if (e.target.tagName === 'INPUT') return;
 
     if (e.key === 'ArrowRight') {
@@ -63,7 +93,7 @@ function App() {
     } else if (e.key === 'ArrowLeft') {
       seekRelative(-10);
     } else if (e.key === ' ') {
-        e.preventDefault(); // Prevent scrolling
+        e.preventDefault();
         setPlaying(prev => !prev);
     }
   }, [videoSrc, seekRelative]);
@@ -74,6 +104,15 @@ function App() {
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [handleKeyDown]);
+
+  // Sync native player play/pause
+  useEffect(() => {
+      if (useNativePlayer && nativeVideoRef.current) {
+          if (playing) nativeVideoRef.current.play().catch(handleError);
+          else nativeVideoRef.current.pause();
+      }
+  }, [playing, useNativePlayer]);
+
 
   const handleMarkIn = () => {
     setMarkStart(currentTime);
@@ -101,6 +140,7 @@ function App() {
   };
 
   const formatTime = (seconds) => {
+    if (!seconds || isNaN(seconds)) return "00:00";
     const date = new Date(seconds * 1000);
     const hh = date.getUTCHours();
     const mm = date.getUTCMinutes();
@@ -166,6 +206,30 @@ function App() {
             </div>
           ) : (
             <>
+              <div className="bg-neutral-900/50 p-3 rounded text-xs font-mono text-neutral-400 mb-4 border border-neutral-700">
+                <div className="flex items-center justify-between mb-2">
+                    <span className="font-bold text-neutral-300">File Info</span>
+                    <Info className="w-3 h-3" />
+                </div>
+                {debugInfo && (
+                    <div className="space-y-1">
+                        <div><span className="text-neutral-500">Name:</span> {debugInfo.name}</div>
+                        <div><span className="text-neutral-500">Type:</span> {debugInfo.type}</div>
+                        <div><span className="text-neutral-500">Size:</span> {debugInfo.size}</div>
+                    </div>
+                )}
+                <div className="mt-3 pt-2 border-t border-neutral-700 flex items-center gap-2">
+                    <span className="text-neutral-500">Player:</span>
+                    <button 
+                        onClick={() => setUseNativePlayer(!useNativePlayer)}
+                        className="text-blue-400 hover:underline flex items-center gap-1"
+                    >
+                        <RefreshCw className="w-3 h-3" />
+                        {useNativePlayer ? "Native Video" : "ReactPlayer"}
+                    </button>
+                </div>
+              </div>
+
               <div className="flex items-center justify-between text-sm text-neutral-400 mb-2">
                 <span>Segments ({segments.length})</span>
                 {markStart !== null && (
@@ -199,14 +263,14 @@ function App() {
 
         <div className="p-4 border-t border-neutral-700 bg-neutral-800">
              {error && (
-                <div className="mb-3 p-2 bg-red-900/30 text-red-200 text-xs rounded border border-red-800 flex items-start gap-2">
-                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                    {error}
+                <div className="mb-3 p-2 bg-red-900/30 text-red-200 text-xs rounded border border-red-800 flex items-start gap-2 break-words">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-400" />
+                    <span>{error}</span>
                 </div>
             )}
           <input
             type="file"
-            accept="video/mp4"
+            accept="video/mp4,video/quicktime,video/x-matroska,video/*"
             onChange={handleFileChange}
             className="hidden"
             id="video-upload"
@@ -246,23 +310,42 @@ function App() {
       <div className="flex-1 flex flex-col bg-black relative">
         {videoSrc ? (
             <>
-                <div className="flex-1 flex items-center justify-center p-4 relative" onClick={() => setPlaying(!playing)}>
-                    <ReactPlayer
-                        key={videoSrc}
-                        ref={playerRef}
-                        url={videoSrc}
-                        width="100%"
-                        height="100%"
-                        playing={playing}
-                        controls={false} // We build custom controls
-                        onProgress={handleProgress}
-                        onDuration={handleDuration}
-                        onError={(e) => {
-                            console.error("Video Error:", e);
-                            setError("Failed to load video. The format (e.g., MKV, HEVC) might not be supported by your browser.");
-                        }}
-                        progressInterval={100}
-                    />
+                <div className="flex-1 flex items-center justify-center p-4 relative bg-black" onClick={() => setPlaying(!playing)}>
+                    {useNativePlayer ? (
+                        <video
+                            ref={nativeVideoRef}
+                            src={videoSrc}
+                            className="w-full h-full object-contain"
+                            onTimeUpdate={(e) => setCurrentTime(e.target.currentTime)}
+                            onLoadedMetadata={(e) => handleDuration(e.target.duration)}
+                            onEnded={() => setPlaying(false)}
+                            onError={handleError}
+                            playsInline
+                        />
+                    ) : (
+                        <ReactPlayer
+                            key={videoSrc}
+                            ref={playerRef}
+                            url={videoSrc}
+                            width="100%"
+                            height="100%"
+                            playing={playing}
+                            controls={false}
+                            onProgress={handleProgress}
+                            onDuration={handleDuration}
+                            onError={handleError}
+                            progressInterval={100}
+                            playsinline={true}
+                            config={{
+                                file: {
+                                    attributes: {
+                                        controlsList: 'nodownload'
+                                    },
+                                    forceVideo: true,
+                                }
+                            }}
+                        />
+                    )}
                 </div>
                 
                 {/* Custom Controls Bar */}
@@ -271,12 +354,16 @@ function App() {
                     <input
                         type="range"
                         min={0}
-                        max={duration}
+                        max={duration || 100} // Fallback to avoid weird range
                         value={currentTime}
                         onChange={(e) => {
                             const val = parseFloat(e.target.value);
                             setCurrentTime(val);
-                            playerRef.current.seekTo(val);
+                            if (useNativePlayer && nativeVideoRef.current) {
+                                nativeVideoRef.current.currentTime = val;
+                            } else if (playerRef.current) {
+                                playerRef.current.seekTo(val);
+                            }
                         }}
                         className="w-full h-2 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-red-600"
                     />
@@ -301,7 +388,7 @@ function App() {
                             <div className="mr-4 text-xs text-neutral-500 hidden md:block">
                                 <span className="bg-neutral-800 px-1.5 py-0.5 rounded border border-neutral-700 mx-1">←</span>
                                 <span className="bg-neutral-800 px-1.5 py-0.5 rounded border border-neutral-700 mx-1">→</span>
-                                to seek 10s
+                                <span className="ml-1">seek 10s</span>
                             </div>
                             
                             <button
