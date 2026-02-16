@@ -19,7 +19,6 @@ export function Timeline({
     const [thumbnails, setThumbnails] = useState([]);
     const [zoomLevel, setZoomLevel] = useState(1); // 1 = 100%
     const containerRef = useRef(null);
-    const canvasRef = useRef(null);
     const isDragging = useRef(null); // 'start', 'end', 'move', 'pan' or null
     const dragStartX = useRef(0);
     const scrollStartX = useRef(0);
@@ -39,7 +38,16 @@ export function Timeline({
         }
 
         const video = document.createElement('video');
-        // ... (setup) ...
+        video.muted = true;
+        video.playsInline = true;
+        video.preload = 'auto';
+        video.crossOrigin = 'anonymous';
+        
+        const canvas = document.createElement('canvas');
+        canvas.width = THUMBNAIL_WIDTH;
+        canvas.height = THUMBNAIL_HEIGHT;
+        const ctx = canvas.getContext('2d');
+        
         const count = Math.ceil(duration / SECONDS_PER_THUMBNAIL);
         const newThumbs = [];
         let currentIndex = 0;
@@ -57,7 +65,6 @@ export function Timeline({
             
             ctx.drawImage(video, 0, 0, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT);
             
-            // Add error handling for canvas toDataURL
             try {
                 const url = canvas.toDataURL('image/jpeg', 0.5);
                 newThumbs.push({
@@ -79,10 +86,8 @@ export function Timeline({
             }
         };
 
-        // Handle video loading errors
         video.onerror = (e) => {
             console.error("Timeline video load error:", e);
-            // Try to continue anyway? Or abort.
         };
 
         video.onloadedmetadata = () => {
@@ -90,7 +95,7 @@ export function Timeline({
             captureFrame();
         };
         
-        // Force load
+        video.src = videoSrc;
         video.load();
 
         return () => {
