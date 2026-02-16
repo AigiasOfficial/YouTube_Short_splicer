@@ -174,6 +174,9 @@ function App() {
       }
   }, [playing, useNativePlayer]);
 
+  // TRACK PLAYING SEGMENT
+  const [playingSegmentId, setPlayingSegmentId] = useState(null);
+
   // LOOPS (Preview & Single Scene)
   useEffect(() => {
     let animationFrame;
@@ -185,6 +188,14 @@ function App() {
         let realTime = currentTime;
         if (useNativePlayer && nativeVideoRef.current) realTime = nativeVideoRef.current.currentTime;
         else if (playerRef.current) realTime = playerRef.current.getCurrentTime();
+
+        // Update active segment tracking for crop preview
+        if (previewing) {
+            const activeSeg = segments.find(s => realTime >= s.start && realTime < s.end);
+            setPlayingSegmentId(activeSeg ? activeSeg.id : null);
+        } else {
+            setPlayingSegmentId(null);
+        }
 
         // 1. Single Scene Loop
         if (loopingSegmentId) {
@@ -222,7 +233,7 @@ function App() {
         animationFrame = requestAnimationFrame(checkLoops);
     }
     return () => cancelAnimationFrame(animationFrame);
-  }, [previewing, loopingSegmentId, playing, currentTime, segments, useNativePlayer, seekTo]);
+  }, [previewing, loopingSegmentId, playing, segments, useNativePlayer, seekTo]); // Removed currentTime to prevent thrashing
 
 
   const handleMarkIn = () => {
@@ -339,7 +350,7 @@ function App() {
 
   // Crop Drag Logic
   const isDragging = useRef(false);
-  const handleCropDrag = (e) => {
+  const handleCropDrag = useCallback((e) => {
       if (!videoContainerRef.current) return;
       
       const containerRect = videoContainerRef.current.getBoundingClientRect();
@@ -363,6 +374,37 @@ function App() {
       } else if (markStart !== null) {
           setTempCropOffset(newOffset);
       }
+  }, [activeSegmentId, markStart, displayedDimensions, tempCropOffset]); // Add dependencies
+
+  const handleCropMouseUp = useCallback(() => {
+      isDragging.current = false;
+  }, []);
+
+  useEffect(() => {
+      if (isDragging.current) {
+          window.addEventListener('mousemove', handleCropDrag);
+          window.addEventListener('mouseup', handleCropMouseUp);
+      }
+      return () => {
+          window.removeEventListener('mousemove', handleCropDrag);
+          window.removeEventListener('mouseup', handleCropMouseUp);
+      };
+  }, [handleCropDrag, handleCropMouseUp]); // This effect might need to run when dragging starts, but isDragging is ref.
+  // Better approach: Attach listeners on MouseDown, remove on MouseUp inside the handler.
+
+  const startCropDrag = (e) => {
+      e.stopPropagation(); 
+      isDragging.current = true;
+      
+      const onMove = (moveEvent) => handleCropDrag(moveEvent);
+      const onUp = () => {
+          isDragging.current = false;
+          window.removeEventListener('mousemove', onMove);
+          window.removeEventListener('mouseup', onUp);
+      };
+      
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
   };
 
   // Identify visible offset
@@ -371,6 +413,10 @@ function App() {
       : tempCropOffset;
 
   const showCropOverlay = (markStart !== null || activeSegmentId !== null) && !previewing && displayedDimensions.width > 0;
+
+  // Determine active crop for PREVIEW mode
+  const playingSegment = segments.find(s => s.id === playingSegmentId);
+  const previewCropOffset = playingSegment ? playingSegment.cropOffset : 0.5;
 
   return (
     <div className="flex h-screen w-full bg-neutral-900 text-gray-100 overflow-hidden font-sans">
@@ -559,10 +605,7 @@ function App() {
                         height: displayedDimensions.height,
                     }}
                     onClick={(e) => e.stopPropagation()}
-                    onMouseDown={() => { isDragging.current = true; }}
-                    onMouseUp={() => { isDragging.current = false; }}
-                    onMouseLeave={() => { isDragging.current = false; }}
-                    onMouseMove={(e) => { if (isDragging.current) handleCropDrag(e); }}
+                    onMouseDown={startCropDrag}
                 >
                     {/* The Crop Box */}
                     <div 
@@ -591,39 +634,59 @@ function App() {
                     <video
                         ref={nativeVideoRef}
                         src={videoSrc}
-                        className="w-full h-full object-contain"
+                        className={clsx(
+                            "w-full h-full",
+                            previewing ? "object-cover" : "object-contain"
+                        )}
+                        style={previewing ? {
+                            // If previewing, we simulate the crop by adjusting object-position
+                            // object-position: x% 50%
+                            // where x is the crop offset (0 to 100)
+                            objectPosition: `${previewCropOffset * 100}% 50%`,
+                            // Also need to constrain width to aspect ratio 9/16
+                            maxWidth: `${(videoContainerRef.current?.clientHeight || 0) * (9/16)}px`
+                        } : {}}
                         onTimeUpdate={(e) => handleProgress({ playedSeconds: e.target.currentTime })}
                         onLoadedMetadata={(e) => {
                             handleDuration(e.target.duration);
-                            // Trigger resize observer manually
                             if (videoContainerRef.current) videoContainerRef.current.dispatchEvent(new Event('resize'));
                         }}
                         onEnded={() => setPlaying(false)}
                         onError={handleError}
                         playsInline
-                        // If previewing, apply transform to simulate crop? 
-                        // It's complex to center the cropped area in the view without changing the layout.
-                        // For now we just play full frame to check flow.
-                        style={previewing ? { 
-                            // transform: `translateX(0px)` // Placeholder for future visual enhancement
-                        } : {}}
                     />
                 ) : (
-                    <ReactPlayer
-                        key={videoSrc}
-                        ref={playerRef}
-                        url={videoSrc}
-                        width="100%"
-                        height="100%"
-                        playing={playing}
-                        controls={false}
-                        onProgress={handleProgress}
-                        onDuration={handleDuration}
-                        onError={handleError}
-                        progressInterval={50}
-                        playsinline={true}
-                        config={{ file: { attributes: { controlsList: 'nodownload' }, forceVideo: true } }}
-                    />
+                    // ReactPlayer logic (harder to style with object-fit)
+                    <div className={clsx("w-full h-full flex justify-center items-center overflow-hidden")}>
+                        <div style={previewing ? {
+                            width: `${(videoContainerRef.current?.clientHeight || 0) * (9/16)}px`,
+                            height: '100%',
+                            overflow: 'hidden',
+                            position: 'relative'
+                        } : { width: '100%', height: '100%' }}>
+                            <ReactPlayer
+                                key={videoSrc}
+                                ref={playerRef}
+                                url={videoSrc}
+                                width={previewing ? "auto" : "100%"}
+                                height="100%"
+                                playing={playing}
+                                controls={false}
+                                onProgress={handleProgress}
+                                onDuration={handleDuration}
+                                onError={handleError}
+                                progressInterval={50}
+                                playsinline={true}
+                                style={previewing ? {
+                                    position: 'absolute',
+                                    left: `${previewCropOffset * 100}%`,
+                                    transform: `translateX(-${previewCropOffset * 100}%)`,
+                                    minWidth: '100vh', // Ensure it covers height
+                                } : {}}
+                                config={{ file: { attributes: { controlsList: 'nodownload' }, forceVideo: true } }}
+                            />
+                        </div>
+                    </div>
                 )
             ) : null}
         </div>

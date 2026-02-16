@@ -92,3 +92,12 @@ This repository contains a full-stack application for splicing YouTube Shorts. I
 - **Comments:** Explain *why* complex logic exists, not *what* the code does.
 - **Safety:** Verify file existence before reading/writing. Check for `ffmpeg` availability in backend code.
 - **Git:** Do not commit `temp/` directories, `venv/`, `node_modules/`, or `dist/`.
+
+## Workflow & release
+
+- **Version History:** Always keep `VERSION.md` updated when adding new features or fixing significant bugs. Determine the version number based on the scope of changes (major/minor/patch).
+- **Verification:** Before committing changes:
+  1. Perform a self-review or spawn a subagent to review the code.
+  2. Run the automated integration tests: `pytest tests/test_pipeline.py`.
+  3. Ensure the test suite passes (including the "no audio" edge case).
+
