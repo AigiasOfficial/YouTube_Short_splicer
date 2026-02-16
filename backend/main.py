@@ -4,7 +4,7 @@ import subprocess
 import uuid
 from typing import List
 from fastapi import FastAPI, UploadFile, File, Form, BackgroundTasks
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import json
 
@@ -71,8 +71,19 @@ def has_audio_stream(file_path: str) -> bool:
         print(f"Warning: FFprobe failed to detect audio: {e}")
         return False
 
+def cleanup_files(file_paths: List[str]):
+    """Background task to remove temporary files"""
+    for path in file_paths:
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+                print(f"Cleaned up: {path}")
+        except Exception as e:
+            print(f"Error cleaning up {path}: {e}")
+
 @app.post("/process-video")
 async def process_video(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     segments: str = Form(...)  # JSON string of segments
 ):
@@ -94,7 +105,7 @@ async def process_video(
         segment_list = json.loads(segments)
         
         if not segment_list:
-            return {"error": "No segments provided"}
+            return JSONResponse(status_code=400, content={"error": "No segments provided"})
             
         # 3. Construct FFmpeg command
         
@@ -163,14 +174,17 @@ async def process_video(
         print(f"Running command: {cmd}")
         subprocess.run(cmd, check=True)
         
+        # Schedule cleanup
+        background_tasks.add_task(cleanup_files, [input_path, output_path])
+        
         return FileResponse(output_path, filename="youtube_short.mp4")
         
     except subprocess.CalledProcessError as e:
         print(f"FFmpeg failed: {e}")
-        return {"error": "Video processing failed"}
+        return JSONResponse(status_code=500, content={"error": "Video processing failed"})
     except Exception as e:
         print(f"Error: {e}")
-        return {"error": str(e)}
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 @app.get("/")
 def read_root():

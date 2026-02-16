@@ -5,3 +5,6 @@ temp/
 dist/
 .env
 .DS_Store
+test_no_audio.mp4
+tests/*.mp4
+backend/server.log

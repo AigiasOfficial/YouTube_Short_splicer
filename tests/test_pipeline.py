@@ -11,6 +11,16 @@ BACKEND_URL = "http://localhost:8000"
 TEST_VIDEO_PATH = os.path.join(os.path.dirname(__file__), "synthetic_4k.mp4")
 TEST_NO_AUDIO_PATH = os.path.join(os.path.dirname(__file__), "synthetic_no_audio.mp4")
 
+# Determine FFmpeg path
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if os.name == 'nt':
+    FFMPEG_BIN = os.path.join(PROJECT_ROOT, "bin", "ffmpeg.exe")
+else:
+    FFMPEG_BIN = os.path.join(PROJECT_ROOT, "bin", "ffmpeg")
+
+if not os.path.exists(FFMPEG_BIN):
+    FFMPEG_BIN = "ffmpeg" # Fallback to PATH
+
 def generate_test_video(filename, duration=30, audio=True):
     """Generates a synthetic 4K video using FFmpeg"""
     if os.path.exists(filename):
@@ -20,7 +30,7 @@ def generate_test_video(filename, duration=30, audio=True):
     
     # 4K resolution, color source
     cmd = [
-        "ffmpeg", "-y",
+        FFMPEG_BIN, "-y",
         "-f", "lavfi", "-i", f"testsrc=size=3840x2160:rate=30:duration={duration}",
     ]
     
