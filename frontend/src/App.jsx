@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import ReactPlayer from 'react-player';
-import { Play, Pause, Scissors, Trash2, Download, Plus, Clock, FileVideo, AlertCircle, Info, RefreshCw, Eye, EyeOff, Loader2, Crop, X } from 'lucide-react';
+import { Play, Pause, Scissors, Download, Plus, Clock, FileVideo, AlertCircle, Info, RefreshCw, Eye, EyeOff, Loader2, Crop } from 'lucide-react';
 import clsx from 'clsx';
+import { Timeline } from './components/Timeline';
+import { SegmentItem } from './components/SegmentItem';
 
 function App() {
   const [videoFile, setVideoFile] = useState(null);
@@ -12,22 +14,28 @@ function App() {
   const [segments, setSegments] = useState([]);
   const [markStart, setMarkStart] = useState(null);
   const [processing, setProcessing] = useState(false);
+  const [progress, setProgress] = useState(0); // 0-100
   const [error, setError] = useState(null);
   const [debugInfo, setDebugInfo] = useState(null);
   
   // Default to native player
   const [useNativePlayer, setUseNativePlayer] = useState(true);
   
-  // New features
+  // Features
   const [previewing, setPreviewing] = useState(false);
+  const [loopingSegmentId, setLoopingSegmentId] = useState(null);
   const [activeSegmentId, setActiveSegmentId] = useState(null);
+  
+  // Crop UI
   const [displayedDimensions, setDisplayedDimensions] = useState({ width: 0, height: 0, top: 0, left: 0 }); // Rendered size
+  // Temp crop offset for the "Marking" phase (before a segment is created)
+  const [tempCropOffset, setTempCropOffset] = useState(0.5);
 
   const playerRef = useRef(null);
   const nativeVideoRef = useRef(null);
   const videoContainerRef = useRef(null);
 
-  // Resize Observer to update overlay position on window resize
+  // Resize Observer to update overlay position
   useEffect(() => {
     if (!videoContainerRef.current) return;
     
@@ -65,27 +73,21 @@ function App() {
     const observer = new ResizeObserver(updateDimensions);
     observer.observe(videoContainerRef.current);
     window.addEventListener('resize', updateDimensions);
-    
-    // Initial check
     updateDimensions();
 
     return () => {
         observer.disconnect();
         window.removeEventListener('resize', updateDimensions);
     };
-  }, [videoSrc, useNativePlayer, duration]); // Re-run when duration changes (metadata loaded)
+  }, [videoSrc, useNativePlayer, duration]);
 
 
   const handleFileChange = (event) => {
     const file = event.target.files[0];
     if (file) {
-      console.log("Selected file:", file.name, file.type, file.size);
-      
-      if (videoSrc) {
-        URL.revokeObjectURL(videoSrc);
-      }
-
+      if (videoSrc) URL.revokeObjectURL(videoSrc);
       const newSrc = URL.createObjectURL(file);
+      
       setVideoFile(file);
       setVideoSrc(newSrc);
       setSegments([]);
@@ -96,8 +98,9 @@ function App() {
       setDuration(0);
       setPreviewing(false);
       setActiveSegmentId(null);
+      setLoopingSegmentId(null);
+      setTempCropOffset(0.5);
       
-      // Detailed Debug Info
       setDebugInfo({
         name: file.name,
         type: file.type || "unknown",
@@ -108,67 +111,51 @@ function App() {
   };
 
   const handleProgress = (state) => {
-    // Only update if not previewing (preview loop handles its own seeking)
-    if (!previewing) {
+    if (!previewing && !loopingSegmentId) {
         setCurrentTime(state.playedSeconds);
     }
   };
 
   const handleDuration = (d) => {
-    console.log("Video Duration Loaded:", d);
     setDuration(d);
     if (error) setError(null);
   };
 
   const handleError = (e) => {
     console.error("Video Error:", e);
-    
     let msg = "Failed to load video.";
     if (e && e.target && e.target.error) {
         const code = e.target.error.code;
         const message = e.target.error.message;
         msg += ` Code: ${code} (${message})`;
-        
         if (code === 3) msg += " (Decoding Error - Codec issue?)";
         if (code === 4) msg += " (Not Supported - Format issue?)";
-    } else {
-        msg += " The format (e.g., MKV, HEVC/H.265) might not be supported by your browser.";
     }
     setError(msg);
   };
 
   const seekTo = useCallback((seconds) => {
+    // Clamp
+    let t = Math.max(0, Math.min(duration, seconds));
     if (useNativePlayer && nativeVideoRef.current) {
-        nativeVideoRef.current.currentTime = seconds;
+        nativeVideoRef.current.currentTime = t;
     } else if (playerRef.current) {
-        playerRef.current.seekTo(seconds, 'seconds');
+        playerRef.current.seekTo(t, 'seconds');
     }
-    setCurrentTime(seconds);
-  }, [useNativePlayer]);
+    setCurrentTime(t);
+  }, [useNativePlayer, duration]);
 
   const seekRelative = useCallback((seconds) => {
-    let newTime = currentTime + seconds;
-    // Clamp
-    if (newTime < 0) newTime = 0;
-    if (newTime > duration) newTime = duration;
-
-    if (useNativePlayer && nativeVideoRef.current) {
-        nativeVideoRef.current.currentTime = newTime;
-    } else if (playerRef.current) {
-        playerRef.current.seekTo(newTime, 'seconds');
-    }
-    setCurrentTime(newTime);
-  }, [useNativePlayer, currentTime, duration]);
+    seekTo(currentTime + seconds);
+  }, [seekTo, currentTime]);
 
   const handleKeyDown = useCallback((e) => {
     if (!videoSrc) return;
     if (e.target.tagName === 'INPUT') return;
 
-    if (e.key === 'ArrowRight') {
-      seekRelative(10);
-    } else if (e.key === 'ArrowLeft') {
-      seekRelative(-10);
-    } else if (e.key === ' ') {
+    if (e.key === 'ArrowRight') seekRelative(5);
+    else if (e.key === 'ArrowLeft') seekRelative(-5);
+    else if (e.key === ' ') {
         e.preventDefault();
         setPlaying(prev => !prev);
     }
@@ -176,12 +163,10 @@ function App() {
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-    };
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
 
-  // Sync native player play/pause
+  // Sync play/pause
   useEffect(() => {
       if (useNativePlayer && nativeVideoRef.current) {
           if (playing) nativeVideoRef.current.play().catch(handleError);
@@ -189,63 +174,61 @@ function App() {
       }
   }, [playing, useNativePlayer]);
 
-  // Preview Loop Logic
+  // LOOPS (Preview & Single Scene)
   useEffect(() => {
     let animationFrame;
     
-    const checkPreviewLoop = () => {
-        if (!previewing || segments.length === 0) return;
+    const checkLoops = () => {
+        if (segments.length === 0) return;
 
-        // Current real time from player
-        let currentRealTime = currentTime;
-        if (useNativePlayer && nativeVideoRef.current) {
-            currentRealTime = nativeVideoRef.current.currentTime;
-        } else if (playerRef.current) {
-            currentRealTime = playerRef.current.getCurrentTime();
-        }
+        // Get precise time
+        let realTime = currentTime;
+        if (useNativePlayer && nativeVideoRef.current) realTime = nativeVideoRef.current.currentTime;
+        else if (playerRef.current) realTime = playerRef.current.getCurrentTime();
 
-        // Find which segment we are currently in
-        let currentSegIndex = segments.findIndex(s => currentRealTime >= s.start && currentRealTime < s.end);
-        
-        // If not in any segment, jump to next closest segment start
-        if (currentSegIndex === -1) {
-             // Find next segment
-             const nextSeg = segments.find(s => s.start > currentRealTime);
-             if (nextSeg) {
-                 seekTo(nextSeg.start);
-             } else {
-                 // Loop back to start
-                 seekTo(segments[0].start);
-             }
-        } else {
-            // We are in a segment, check if we reached the end (with small buffer)
-            const currentSeg = segments[currentSegIndex];
-            if (currentRealTime >= currentSeg.end - 0.2) { // 200ms buffer for smoother loop
-                const nextSeg = segments[currentSegIndex + 1];
-                if (nextSeg) {
-                    seekTo(nextSeg.start);
-                } else {
-                    // Loop back to start
-                    seekTo(segments[0].start);
+        // 1. Single Scene Loop
+        if (loopingSegmentId) {
+            const seg = segments.find(s => s.id === loopingSegmentId);
+            if (seg) {
+                if (realTime >= seg.end || realTime < seg.start - 0.5) {
+                    seekTo(seg.start);
                 }
             }
         }
-        
-        if (previewing && playing) {
-            animationFrame = requestAnimationFrame(checkPreviewLoop);
+        // 2. Full Preview Loop
+        else if (previewing) {
+            const currentSegIndex = segments.findIndex(s => realTime >= s.start && realTime < s.end);
+            
+            if (currentSegIndex === -1) {
+                 // Jump to next or start
+                 const nextSeg = segments.find(s => s.start > realTime);
+                 seekTo(nextSeg ? nextSeg.start : segments[0].start);
+            } else {
+                // Check end of current segment
+                const currentSeg = segments[currentSegIndex];
+                if (realTime >= currentSeg.end - 0.2) { 
+                    const nextSeg = segments[currentSegIndex + 1];
+                    seekTo(nextSeg ? nextSeg.start : segments[0].start);
+                }
+            }
+        }
+
+        if (playing && (previewing || loopingSegmentId)) {
+            animationFrame = requestAnimationFrame(checkLoops);
         }
     };
 
-    if (previewing && playing) {
-        animationFrame = requestAnimationFrame(checkPreviewLoop);
+    if (playing && (previewing || loopingSegmentId)) {
+        animationFrame = requestAnimationFrame(checkLoops);
     }
-
     return () => cancelAnimationFrame(animationFrame);
-  }, [previewing, playing, currentTime, segments, useNativePlayer, seekTo]);
+  }, [previewing, loopingSegmentId, playing, currentTime, segments, useNativePlayer, seekTo]);
 
 
   const handleMarkIn = () => {
     setMarkStart(currentTime);
+    // Inherit crop from last used if available, or center
+    // We keep tempCropOffset in state
   };
 
   const handleMarkOut = () => {
@@ -259,41 +242,70 @@ function App() {
       id: Date.now(),
       start: markStart,
       end: currentTime,
-      cropOffset: 0.5 // Default center
+      cropOffset: tempCropOffset // Use the offset set during the marking phase
     };
     
     setSegments([...segments, newSegment]);
     setMarkStart(null);
-    setActiveSegmentId(newSegment.id); // Select new segment
+    setActiveSegmentId(newSegment.id);
   };
 
   const deleteSegment = (id) => {
     setSegments(segments.filter(s => s.id !== id));
     if (activeSegmentId === id) setActiveSegmentId(null);
+    if (loopingSegmentId === id) setLoopingSegmentId(null);
   };
 
-  const updateSegmentCrop = (id, newOffset) => {
-      setSegments(segments.map(s => s.id === id ? { ...s, cropOffset: newOffset } : s));
+  const updateSegment = (id, updates) => {
+      setSegments(segments.map(s => s.id === id ? { ...s, ...updates } : s));
+  };
+
+  const toggleSceneLoop = (id) => {
+      if (loopingSegmentId === id) {
+          setLoopingSegmentId(null); // Stop looping
+      } else {
+          setLoopingSegmentId(id);
+          setPlaying(true);
+          const seg = segments.find(s => s.id === id);
+          if (seg) seekTo(seg.start);
+      }
+      setPreviewing(false); // Disable global preview
   };
 
   const formatTime = (seconds) => {
     if (!seconds || isNaN(seconds)) return "00:00";
     const date = new Date(seconds * 1000);
-    const hh = date.getUTCHours();
     const mm = date.getUTCMinutes();
     const ss = String(date.getUTCSeconds()).padStart(2, '0');
-    if (hh) {
-      return `${hh}:${String(mm).padStart(2, '0')}:${ss}`;
-    }
     return `${mm}:${ss}`;
   };
+
+  // Fake Progress Simulation
+  useEffect(() => {
+      let interval;
+      if (processing) {
+          setProgress(0);
+          interval = setInterval(() => {
+              setProgress(prev => {
+                  if (prev < 30) return prev + 2; // Fast start
+                  if (prev < 80) return prev + 0.5; // Slow middle
+                  return prev; // Stall at 80% until done
+              });
+          }, 100);
+      } else {
+          setProgress(100);
+      }
+      return () => clearInterval(interval);
+  }, [processing]);
+
 
   const handleGenerate = async () => {
     if (!videoFile || segments.length === 0) return;
 
     setProcessing(true);
     setError(null);
-    setPreviewing(false); // Stop preview
+    setPreviewing(false);
+    setLoopingSegmentId(null);
     setPlaying(false);
 
     const formData = new FormData();
@@ -306,9 +318,7 @@ function App() {
         body: formData,
       });
 
-      if (!response.ok) {
-        throw new Error('Processing failed');
-      }
+      if (!response.ok) throw new Error('Processing failed');
 
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
@@ -318,265 +328,228 @@ function App() {
       document.body.appendChild(a);
       a.click();
       a.remove();
+      setProgress(100);
     } catch (err) {
       console.error(err);
-      setError("Failed to generate video. Ensure backend is running.");
+      setError("Failed to generate video.");
     } finally {
       setProcessing(false);
     }
   };
 
-  // Crop Overlay Logic
-  const activeSegment = segments.find(s => s.id === activeSegmentId);
+  // Crop Drag Logic
   const isDragging = useRef(false);
-  
   const handleCropDrag = (e) => {
-      if (!activeSegment || !videoContainerRef.current) return;
+      if (!videoContainerRef.current) return;
       
       const containerRect = videoContainerRef.current.getBoundingClientRect();
       const clientX = e.clientX || (e.touches && e.touches[0].clientX);
-      
       if (!clientX) return;
 
-      // Calculate displayed video bounds
       const videoLeft = containerRect.left + displayedDimensions.left;
       const videoWidth = displayedDimensions.width;
-      
-      // Calculate 9:16 crop width in pixels relative to displayed video
       const cropWidth = displayedDimensions.height * (9/16);
       const maxOffsetPx = videoWidth - cropWidth;
       
-      if (maxOffsetPx <= 0) return; // Video is narrower than crop box (unlikely if 16:9)
+      if (maxOffsetPx <= 0) return;
 
-      // Mouse position relative to video start
-      let relativeX = clientX - videoLeft;
-      
-      // Center the crop box on mouse
-      relativeX -= (cropWidth / 2);
-      
-      // Clamp
+      let relativeX = clientX - videoLeft - (cropWidth / 2);
       relativeX = Math.max(0, Math.min(relativeX, maxOffsetPx));
-      
-      // Convert to 0.0 - 1.0 offset
       const newOffset = relativeX / maxOffsetPx;
-      updateSegmentCrop(activeSegment.id, newOffset);
+
+      // Update appropriate state
+      if (activeSegmentId) {
+          updateSegment(activeSegmentId, { cropOffset: newOffset });
+      } else if (markStart !== null) {
+          setTempCropOffset(newOffset);
+      }
   };
-  
+
+  // Identify visible offset
+  const currentOffset = activeSegmentId 
+      ? segments.find(s => s.id === activeSegmentId)?.cropOffset 
+      : tempCropOffset;
+
+  const showCropOverlay = (markStart !== null || activeSegmentId !== null) && !previewing && displayedDimensions.width > 0;
 
   return (
     <div className="flex h-screen w-full bg-neutral-900 text-gray-100 overflow-hidden font-sans">
       
       {/* Processing Overlay */}
       {processing && (
-          <div className="fixed inset-0 z-50 bg-black/80 flex flex-col items-center justify-center backdrop-blur-sm">
-              <Loader2 className="w-16 h-16 text-red-500 animate-spin mb-4" />
-              <h2 className="text-2xl font-bold text-white">Processing Video...</h2>
-              <p className="text-neutral-400 mt-2">Please wait while we stitch your clips.</p>
+          <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center backdrop-blur-md">
+              <Loader2 className="w-16 h-16 text-red-500 animate-spin mb-6" />
+              <h2 className="text-3xl font-bold text-white mb-2">Generating Short...</h2>
+              <p className="text-neutral-400 mb-8">Stitching your clips together</p>
+              
+              <div className="w-96 h-2 bg-neutral-800 rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-red-600 transition-all duration-300 ease-out"
+                    style={{ width: `${progress}%` }}
+                  />
+              </div>
+              <p className="text-neutral-500 text-sm mt-2">{Math.round(progress)}%</p>
           </div>
       )}
 
-      {/* Sidebar: Segments & Actions */}
-      <div className="w-80 bg-neutral-800 border-r border-neutral-700 flex flex-col shrink-0 z-20">
-        <div className="p-4 border-b border-neutral-700">
+      {/* Sidebar */}
+      <div className="w-96 bg-neutral-800 border-r border-neutral-700 flex flex-col shrink-0 z-20 shadow-xl">
+        <div className="p-4 border-b border-neutral-700 bg-neutral-800">
           <h1 className="text-xl font-bold flex items-center gap-2">
             <Scissors className="w-5 h-5 text-red-500" />
             Short Splicer
           </h1>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
           {!videoSrc ? (
-            <div className="text-center text-neutral-500 mt-10">
-              <FileVideo className="w-12 h-12 mx-auto mb-2 opacity-50" />
-              <p>Load a video to start splicing</p>
+            <div className="text-center text-neutral-500 mt-20 flex flex-col items-center">
+              <div className="w-16 h-16 bg-neutral-700 rounded-full flex items-center justify-center mb-4">
+                  <FileVideo className="w-8 h-8 text-neutral-500" />
+              </div>
+              <p className="font-medium text-lg text-neutral-400">No Video Loaded</p>
+              <p className="text-sm mt-1">Upload a file below to start</p>
             </div>
           ) : (
             <>
-              <div className="bg-neutral-900/50 p-3 rounded text-xs font-mono text-neutral-400 mb-4 border border-neutral-700">
+              {/* File Info Box */}
+              <div className="bg-neutral-900/50 p-3 rounded-lg border border-neutral-700 text-xs">
                 <div className="flex items-center justify-between mb-2">
                     <span className="font-bold text-neutral-300">File Info</span>
-                    <Info className="w-3 h-3" />
+                    <Info className="w-3 h-3 text-neutral-500" />
                 </div>
                 {debugInfo && (
-                    <div className="space-y-1">
-                        <div className="truncate" title={debugInfo.name}><span className="text-neutral-500">Name:</span> {debugInfo.name}</div>
-                        <div><span className="text-neutral-500">Type:</span> {debugInfo.type}</div>
-                        <div><span className="text-neutral-500">Size:</span> {debugInfo.size}</div>
+                    <div className="space-y-1 font-mono text-neutral-400">
+                        <div className="truncate" title={debugInfo.name}>{debugInfo.name}</div>
+                        <div>{debugInfo.type} • {debugInfo.size}</div>
                     </div>
                 )}
-                <div className="mt-3 pt-2 border-t border-neutral-700 flex items-center gap-2">
-                    <span className="text-neutral-500">Player:</span>
+                <div className="mt-3 pt-2 border-t border-neutral-700 flex items-center justify-between">
+                    <span className="text-neutral-500">Engine:</span>
                     <button 
                         onClick={() => setUseNativePlayer(!useNativePlayer)}
-                        className="text-blue-400 hover:underline flex items-center gap-1"
+                        className="text-blue-400 hover:text-blue-300 hover:underline flex items-center gap-1 transition-colors"
                     >
                         <RefreshCw className="w-3 h-3" />
-                        {useNativePlayer ? "Native Video" : "ReactPlayer"}
+                        {useNativePlayer ? "Native (Fast)" : "ReactPlayer"}
                     </button>
                 </div>
               </div>
 
-              <div className="flex items-center justify-between text-sm text-neutral-400 mb-2">
-                <span>Segments ({segments.length})</span>
+              <div className="flex items-center justify-between text-sm text-neutral-400 mt-4 mb-2">
+                <span className="font-bold">Segments ({segments.length})</span>
                 {previewing ? (
-                    <span className="text-green-400 flex items-center gap-1 text-xs animate-pulse">
-                        <Eye className="w-3 h-3" /> Previewing Loop
+                    <span className="text-green-400 flex items-center gap-1 text-xs animate-pulse font-bold bg-green-900/20 px-2 py-0.5 rounded-full">
+                        <Eye className="w-3 h-3" /> Previewing
                     </span>
-                ) : markStart !== null && (
-                  <span className="text-amber-500 animate-pulse text-xs">Marking In...</span>
-                )}
+                ) : markStart !== null ? (
+                  <span className="text-amber-500 animate-pulse text-xs font-bold bg-amber-900/20 px-2 py-0.5 rounded-full">
+                      ● Recording
+                  </span>
+                ) : null}
               </div>
               
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {segments.map((seg, idx) => (
-                  <div 
-                    key={seg.id} 
-                    onClick={() => {
-                        setActiveSegmentId(seg.id);
-                        seekTo(seg.start);
-                        if (!playing) setPlaying(false); // Don't auto-play
-                    }}
-                    className={clsx(
-                        "p-3 rounded-lg flex flex-col gap-2 cursor-pointer transition-all border",
-                        activeSegmentId === seg.id 
-                            ? "bg-neutral-700 border-red-500/50 shadow-md shadow-black/20" 
-                            : "bg-neutral-700/50 border-transparent hover:bg-neutral-700 hover:border-neutral-600"
-                    )}
-                  >
-                    <div className="flex items-center justify-between">
-                        <div className="flex flex-col">
-                            <span className={clsx("text-xs font-mono", activeSegmentId === seg.id ? "text-red-400" : "text-neutral-400")}>
-                                Scene {idx + 1}
-                            </span>
-                            <div className="font-mono text-sm">
-                                <span className="text-green-400">{formatTime(seg.start)}</span>
-                                <span className="text-neutral-500 mx-1">→</span>
-                                <span className="text-red-400">{formatTime(seg.end)}</span>
-                            </div>
-                        </div>
-                        <button 
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                deleteSegment(seg.id);
-                            }}
-                            className="text-neutral-500 hover:text-red-500 p-1 rounded hover:bg-neutral-600 transition-colors"
-                        >
-                            <Trash2 className="w-4 h-4" />
-                        </button>
-                    </div>
-                    
-                    {/* Crop indicator */}
-                    {activeSegmentId === seg.id && (
-                        <div className="flex items-center gap-2 text-xs text-neutral-400 bg-black/20 p-1 rounded">
-                            <Crop className="w-3 h-3" />
-                            <span>Offset: {(seg.cropOffset * 100).toFixed(0)}%</span>
-                            <button 
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    updateSegmentCrop(seg.id, 0.5); // Reset to center
-                                }}
-                                className="ml-auto text-blue-400 hover:text-blue-300 text-[10px] underline"
-                            >
-                                Reset Center
-                            </button>
-                        </div>
-                    )}
-                  </div>
+                    <SegmentItem 
+                        key={seg.id}
+                        idx={idx}
+                        segment={seg}
+                        isActive={activeSegmentId === seg.id}
+                        isLooping={loopingSegmentId === seg.id}
+                        onSelect={(id, start) => {
+                            setActiveSegmentId(id);
+                            setLoopingSegmentId(null);
+                            setPreviewing(false);
+                            seekTo(start);
+                            setPlaying(false);
+                        }}
+                        onDelete={deleteSegment}
+                        onUpdate={updateSegment}
+                        onResetCrop={(id) => updateSegment(id, { cropOffset: 0.5 })}
+                        onLoop={toggleSceneLoop}
+                    />
                 ))}
               </div>
             </>
           )}
         </div>
 
+        {/* Action Footer */}
         <div className="p-4 border-t border-neutral-700 bg-neutral-800 space-y-3">
              {error && (
-                <div className="mb-3 p-2 bg-red-900/30 text-red-200 text-xs rounded border border-red-800 flex items-start gap-2 break-words">
+                <div className="mb-3 p-3 bg-red-900/20 text-red-300 text-xs rounded border border-red-800/50 flex items-start gap-2 break-words">
                     <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-400" />
                     <span>{error}</span>
                 </div>
             )}
             
-            {/* Preview Toggle */}
-             <button
-                onClick={() => {
-                    if (previewing) {
-                        setPreviewing(false);
-                        setPlaying(false);
-                    } else {
-                        setPreviewing(true);
-                        setPlaying(true);
-                        // Jump to start of first segment
-                        if (segments.length > 0) seekTo(segments[0].start);
-                    }
-                }}
-                disabled={segments.length === 0}
-                className={clsx(
-                    "flex items-center justify-center gap-2 w-full py-2 px-4 rounded font-medium transition-all text-sm border",
-                    previewing 
-                        ? "bg-green-900/30 text-green-400 border-green-800"
-                        : segments.length === 0 
-                            ? "bg-neutral-700 text-neutral-500 border-transparent cursor-not-allowed"
-                            : "bg-neutral-700 hover:bg-neutral-600 text-neutral-300 border-neutral-600"
-                )}
-            >
-                {previewing ? (
-                    <>
-                        <EyeOff className="w-4 h-4" /> Stop Preview
-                    </>
-                ) : (
-                    <>
-                        <Eye className="w-4 h-4" /> Preview Loop
-                    </>
-                )}
-            </button>
-
-          <input
-            type="file"
-            accept="video/mp4,video/quicktime,video/x-matroska,video/*"
-            onChange={handleFileChange}
-            className="hidden"
-            id="video-upload"
-          />
-          <div className="grid gap-2">
-            <label 
-                htmlFor="video-upload" 
-                className="flex items-center justify-center gap-2 w-full py-2 px-4 bg-neutral-700 hover:bg-neutral-600 rounded cursor-pointer transition-colors text-sm font-medium"
-            >
-                {videoSrc ? 'Change Video' : 'Select Video File'}
-            </label>
+            <div className="grid grid-cols-2 gap-2">
+                 <button
+                    onClick={() => {
+                        if (previewing) {
+                            setPreviewing(false);
+                            setPlaying(false);
+                        } else {
+                            setPreviewing(true);
+                            setLoopingSegmentId(null);
+                            setActiveSegmentId(null);
+                            setPlaying(true);
+                            if (segments.length > 0) seekTo(segments[0].start);
+                        }
+                    }}
+                    disabled={segments.length === 0}
+                    className={clsx(
+                        "flex items-center justify-center gap-2 py-2 px-3 rounded font-medium transition-all text-xs border",
+                        previewing 
+                            ? "bg-green-900/30 text-green-400 border-green-800"
+                            : segments.length === 0 
+                                ? "bg-neutral-700 text-neutral-500 border-transparent cursor-not-allowed"
+                                : "bg-neutral-700 hover:bg-neutral-600 text-neutral-300 border-neutral-600"
+                    )}
+                >
+                    {previewing ? <><EyeOff className="w-3 h-3" /> Stop</> : <><Eye className="w-3 h-3" /> Preview All</>}
+                </button>
+                
+                <label className={clsx(
+                    "flex items-center justify-center gap-2 py-2 px-3 bg-neutral-700 hover:bg-neutral-600 rounded cursor-pointer transition-colors text-xs font-medium text-neutral-300 border border-neutral-600",
+                    processing && "opacity-50 cursor-not-allowed"
+                )}>
+                    {videoSrc ? 'Change File' : 'Select Video'}
+                    <input
+                        type="file"
+                        accept="video/mp4,video/quicktime,video/x-matroska,video/*"
+                        onChange={handleFileChange}
+                        className="hidden"
+                        disabled={processing}
+                    />
+                </label>
+            </div>
             
             <button
                 onClick={handleGenerate}
                 disabled={processing || segments.length === 0}
                 className={clsx(
-                    "flex items-center justify-center gap-2 w-full py-3 px-4 rounded font-bold transition-all",
+                    "flex items-center justify-center gap-2 w-full py-3 px-4 rounded-lg font-bold text-sm transition-all shadow-lg",
                     processing || segments.length === 0
-                        ? "bg-neutral-700 text-neutral-500 cursor-not-allowed"
-                        : "bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-900/20"
+                        ? "bg-neutral-700 text-neutral-500 cursor-not-allowed shadow-none"
+                        : "bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white shadow-red-900/30 hover:scale-[1.02] active:scale-[0.98]"
                 )}
             >
-                {processing ? (
-                    <>Processing...</>
-                ) : (
-                    <>
-                        <Download className="w-4 h-4" />
-                        Generate Short
-                    </>
-                )}
+                {processing ? "Processing..." : <><Download className="w-4 h-4" /> Export Short</>}
             </button>
-          </div>
         </div>
       </div>
 
-      {/* Main Content: Player */}
-      <div className="flex-1 flex flex-col bg-black relative">
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col bg-black relative min-w-0">
         <div 
             ref={videoContainerRef}
-            className="flex-1 flex items-center justify-center p-4 relative bg-black overflow-hidden select-none" 
+            className="flex-1 relative bg-black overflow-hidden select-none flex items-center justify-center" 
             onClick={() => setPlaying(!playing)}
         >
             {/* Crop Overlay */}
-            {activeSegment && !previewing && displayedDimensions.width > 0 && (
+            {showCropOverlay && (
                 <div 
                     className="absolute z-10 pointer-events-auto cursor-ew-resize group"
                     style={{
@@ -585,36 +558,28 @@ function App() {
                         width: displayedDimensions.width,
                         height: displayedDimensions.height,
                     }}
-                    onClick={(e) => e.stopPropagation()} // Prevent play/pause
+                    onClick={(e) => e.stopPropagation()}
                     onMouseDown={() => { isDragging.current = true; }}
                     onMouseUp={() => { isDragging.current = false; }}
                     onMouseLeave={() => { isDragging.current = false; }}
-                    onMouseMove={(e) => {
-                        if (isDragging.current) handleCropDrag(e);
-                    }}
-                    onTouchStart={() => { isDragging.current = true; }}
-                    onTouchEnd={() => { isDragging.current = false; }}
-                    onTouchMove={(e) => {
-                        if (isDragging.current) handleCropDrag(e);
-                    }}
+                    onMouseMove={(e) => { if (isDragging.current) handleCropDrag(e); }}
                 >
                     {/* The Crop Box */}
                     <div 
                         className="absolute h-full border-2 border-red-500 shadow-[0_0_0_9999px_rgba(0,0,0,0.7)]"
                         style={{
                             width: `${(displayedDimensions.height * (9/16))}px`,
-                            left: `${(displayedDimensions.width - (displayedDimensions.height * (9/16))) * activeSegment.cropOffset}px`
+                            left: `${(displayedDimensions.width - (displayedDimensions.height * (9/16))) * currentOffset}px`
                         }}
                     >
-                        {/* Grid lines for rule of thirds */}
-                        <div className="absolute top-0 left-1/3 w-px h-full bg-white/30"></div>
-                        <div className="absolute top-0 right-1/3 w-px h-full bg-white/30"></div>
-                        <div className="absolute top-1/3 left-0 w-full h-px bg-white/30"></div>
-                        <div className="absolute top-2/3 left-0 w-full h-px bg-white/30"></div>
+                        {/* Grid lines */}
+                        <div className="absolute top-0 left-1/3 w-px h-full bg-white/30" />
+                        <div className="absolute top-0 right-1/3 w-px h-full bg-white/30" />
+                        <div className="absolute top-1/3 left-0 w-full h-px bg-white/30" />
+                        <div className="absolute top-2/3 left-0 w-full h-px bg-white/30" />
                         
-                        {/* Drag Handle hint */}
-                        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-red-500/80 text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-                            Drag to Crop
+                        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-red-500/90 text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none font-bold tracking-wide shadow-sm">
+                            DRAG TO CROP
                         </div>
                     </div>
                 </div>
@@ -627,19 +592,21 @@ function App() {
                         ref={nativeVideoRef}
                         src={videoSrc}
                         className="w-full h-full object-contain"
-                        onTimeUpdate={(e) => {
-                            if (!previewing) setCurrentTime(e.target.currentTime);
-                        }}
+                        onTimeUpdate={(e) => handleProgress({ playedSeconds: e.target.currentTime })}
                         onLoadedMetadata={(e) => {
                             handleDuration(e.target.duration);
                             // Trigger resize observer manually
-                            if (videoContainerRef.current) {
-                                videoContainerRef.current.dispatchEvent(new Event('resize'));
-                            }
+                            if (videoContainerRef.current) videoContainerRef.current.dispatchEvent(new Event('resize'));
                         }}
                         onEnded={() => setPlaying(false)}
                         onError={handleError}
                         playsInline
+                        // If previewing, apply transform to simulate crop? 
+                        // It's complex to center the cropped area in the view without changing the layout.
+                        // For now we just play full frame to check flow.
+                        style={previewing ? { 
+                            // transform: `translateX(0px)` // Placeholder for future visual enhancement
+                        } : {}}
                     />
                 ) : (
                     <ReactPlayer
@@ -653,79 +620,56 @@ function App() {
                         onProgress={handleProgress}
                         onDuration={handleDuration}
                         onError={handleError}
-                        progressInterval={50} // Faster updates for smoother preview
+                        progressInterval={50}
                         playsinline={true}
-                        config={{
-                            file: {
-                                attributes: {
-                                    controlsList: 'nodownload'
-                                },
-                                forceVideo: true,
-                            }
-                        }}
+                        config={{ file: { attributes: { controlsList: 'nodownload' }, forceVideo: true } }}
                     />
                 )
-            ) : (
-                 <div className="flex flex-col items-center justify-center text-neutral-500">
-                    <div className="w-24 h-24 rounded-full bg-neutral-800 flex items-center justify-center mb-4">
-                        <Play className="w-10 h-10 ml-2 opacity-50" />
-                    </div>
-                    <h2 className="text-2xl font-bold text-neutral-300">No Video Selected</h2>
-                    <p className="mt-2">Upload a video from the sidebar to get started.</p>
-                </div>
-            )}
+            ) : null}
         </div>
-        
-        {/* Custom Controls Bar */}
-        <div className="h-24 bg-neutral-900 border-t border-neutral-800 p-4 flex flex-col gap-2 shrink-0 z-20">
-            {/* Progress Bar (Interactive) */}
-            <input
-                type="range"
-                min={0}
-                max={duration || 100} // Fallback to avoid weird range
-                value={currentTime}
-                onChange={(e) => {
-                    const val = parseFloat(e.target.value);
-                    seekTo(val);
+
+        {/* Timeline & Controls */}
+        <div className="bg-neutral-900 shrink-0 z-20">
+            <Timeline 
+                videoSrc={videoSrc}
+                duration={duration}
+                segments={segments}
+                currentTime={currentTime}
+                onSeek={seekTo}
+                onUpdateSegment={updateSegment}
+                activeSegmentId={activeSegmentId}
+                setActiveSegmentId={(id) => {
+                    setActiveSegmentId(id);
+                    setLoopingSegmentId(null);
+                    setPreviewing(false);
                 }}
-                disabled={previewing}
-                className={clsx(
-                    "w-full h-2 rounded-lg appearance-none cursor-pointer",
-                    previewing ? "bg-neutral-800 accent-green-500 cursor-not-allowed" : "bg-neutral-700 accent-red-600"
-                )}
             />
             
-            <div className="flex items-center justify-between mt-1">
+            <div className="h-16 border-t border-neutral-800 p-2 flex items-center justify-between px-6">
                 <div className="flex items-center gap-4">
                     <button 
                         onClick={() => setPlaying(!playing)}
-                        className="w-10 h-10 rounded-full bg-white text-black flex items-center justify-center hover:bg-neutral-200 transition-colors"
+                        className="w-10 h-10 rounded-full bg-white text-black flex items-center justify-center hover:bg-neutral-200 transition-colors shadow-lg shadow-white/10"
                     >
                         {playing ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current ml-1" />}
                     </button>
                     
-                    <div className="text-sm font-mono text-neutral-400">
+                    <div className="text-sm font-mono text-neutral-400 bg-black/40 px-3 py-1 rounded border border-neutral-800">
                         <span className="text-white">{formatTime(currentTime)}</span>
-                        <span className="mx-1">/</span>
+                        <span className="mx-1 text-neutral-600">/</span>
                         <span>{formatTime(duration)}</span>
                     </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                    <div className="mr-4 text-xs text-neutral-500 hidden md:block">
-                        <span className="bg-neutral-800 px-1.5 py-0.5 rounded border border-neutral-700 mx-1">←</span>
-                        <span className="bg-neutral-800 px-1.5 py-0.5 rounded border border-neutral-700 mx-1">→</span>
-                        <span className="ml-1">seek 10s</span>
-                    </div>
-                    
+                <div className="flex items-center gap-3">
                     <button
                         onClick={handleMarkIn}
                         disabled={markStart !== null || previewing}
                         className={clsx(
-                            "flex items-center gap-2 px-4 py-2 rounded font-medium transition-colors",
+                            "flex items-center gap-2 px-5 py-2.5 rounded-lg font-bold transition-all text-sm",
                             markStart !== null || previewing
                                 ? "bg-neutral-800 text-neutral-500 cursor-not-allowed" 
-                                : "bg-neutral-800 hover:bg-neutral-700 text-green-400 border border-green-900/30"
+                                : "bg-neutral-800 hover:bg-neutral-700 text-green-400 border border-green-500/20 hover:border-green-500/50 shadow-lg shadow-black/20"
                         )}
                     >
                         <Plus className="w-4 h-4" />
@@ -736,10 +680,10 @@ function App() {
                         onClick={handleMarkOut}
                         disabled={markStart === null || previewing}
                         className={clsx(
-                            "flex items-center gap-2 px-4 py-2 rounded font-medium transition-colors",
+                            "flex items-center gap-2 px-5 py-2.5 rounded-lg font-bold transition-all text-sm",
                             markStart === null || previewing
                                 ? "bg-neutral-800 text-neutral-500 cursor-not-allowed"
-                                : "bg-neutral-800 hover:bg-neutral-700 text-red-400 border border-red-900/30"
+                                : "bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-900/40"
                         )}
                     >
                         <Clock className="w-4 h-4" />
