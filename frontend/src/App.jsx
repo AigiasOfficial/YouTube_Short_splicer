@@ -19,11 +19,21 @@ function App() {
   const handleFileChange = (event) => {
     const file = event.target.files[0];
     if (file) {
+      console.log("Selected file:", file.name, file.type, file.size);
+      
+      // Revoke previous URL to avoid memory leaks
+      if (videoSrc) {
+        URL.revokeObjectURL(videoSrc);
+      }
+
       setVideoFile(file);
       setVideoSrc(URL.createObjectURL(file));
       setSegments([]);
       setMarkStart(null);
       setError(null);
+      setPlaying(false);
+      setCurrentTime(0);
+      setDuration(0);
     }
   };
 
@@ -238,6 +248,7 @@ function App() {
             <>
                 <div className="flex-1 flex items-center justify-center p-4 relative" onClick={() => setPlaying(!playing)}>
                     <ReactPlayer
+                        key={videoSrc}
                         ref={playerRef}
                         url={videoSrc}
                         width="100%"
@@ -246,6 +257,10 @@ function App() {
                         controls={false} // We build custom controls
                         onProgress={handleProgress}
                         onDuration={handleDuration}
+                        onError={(e) => {
+                            console.error("Video Error:", e);
+                            setError("Failed to load video. The format (e.g., MKV, HEVC) might not be supported by your browser.");
+                        }}
                         progressInterval={100}
                     />
                 </div>
