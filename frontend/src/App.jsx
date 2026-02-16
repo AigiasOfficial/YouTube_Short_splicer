@@ -28,6 +28,7 @@ function App() {
   
   // Crop UI
   const [displayedDimensions, setDisplayedDimensions] = useState({ width: 0, height: 0, top: 0, left: 0 }); // Rendered size
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
   // Temp crop offset for the "Marking" phase (before a segment is created)
   const [tempCropOffset, setTempCropOffset] = useState(0.5);
 
@@ -47,6 +48,10 @@ function App() {
         if (videoElement && (videoElement.videoWidth || videoElement.videoWidth === 0)) {
             const container = videoContainerRef.current;
             const containerRatio = container.clientWidth / container.clientHeight;
+            
+            // Update container size state for render logic
+            setContainerSize({ width: container.clientWidth, height: container.clientHeight });
+
             // Default to 16:9 if metadata not loaded yet
             const videoRatio = (videoElement.videoWidth || 16) / (videoElement.videoHeight || 9);
             
@@ -647,7 +652,7 @@ function App() {
                             // where x is the crop offset (0 to 100)
                             objectPosition: `${previewCropOffset * 100}% 50%`,
                             // Also need to constrain width to aspect ratio 9/16
-                            maxWidth: `${(videoContainerRef.current?.clientHeight || 0) * (9/16)}px`
+                            maxWidth: `${containerSize.height * (9/16)}px`
                         } : {}}
                         onTimeUpdate={(e) => handleProgress({ playedSeconds: e.target.currentTime })}
                         onLoadedMetadata={(e) => {

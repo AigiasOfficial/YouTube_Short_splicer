@@ -86,8 +86,12 @@ export function Timeline({
         };
 
         video.onloadedmetadata = () => {
+            console.log("Timeline video metadata loaded. Duration:", video.duration);
             captureFrame();
         };
+        
+        // Force load
+        video.load();
 
         return () => {
             video.src = ""; 
