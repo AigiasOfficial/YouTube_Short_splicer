@@ -57,11 +57,17 @@ export function Timeline({
             
             ctx.drawImage(video, 0, 0, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT);
             
-            newThumbs.push({
-                id: currentIndex,
-                time: currentIndex * SECONDS_PER_THUMBNAIL,
-                url: canvas.toDataURL('image/jpeg', 0.5)
-            });
+            // Add error handling for canvas toDataURL
+            try {
+                const url = canvas.toDataURL('image/jpeg', 0.5);
+                newThumbs.push({
+                    id: currentIndex,
+                    time: currentIndex * SECONDS_PER_THUMBNAIL,
+                    url: url
+                });
+            } catch (e) {
+                console.error("Failed to generate thumbnail:", e);
+            }
             
             if (newThumbs.length % 5 === 0 || newThumbs.length === count) {
                 if (isMounted.current) setThumbnails([...newThumbs]);
@@ -71,6 +77,12 @@ export function Timeline({
             if (currentIndex < count) {
                 timeoutId = setTimeout(captureFrame, 50); 
             }
+        };
+
+        // Handle video loading errors
+        video.onerror = (e) => {
+            console.error("Timeline video load error:", e);
+            // Try to continue anyway? Or abort.
         };
 
         video.onloadedmetadata = () => {
@@ -179,8 +191,8 @@ export function Timeline({
 
     return (
         <div className="relative group/timeline">
-            {/* Zoom Controls */}
-            <div className="absolute right-4 bottom-full mb-2 flex items-center gap-1 bg-black/80 rounded-lg p-1 border border-neutral-700 opacity-0 group-hover/timeline:opacity-100 transition-opacity z-40">
+            {/* Zoom Controls - Force visible with z-index and opacity */}
+            <div className="absolute right-4 bottom-full mb-2 flex items-center gap-1 bg-black/90 rounded-lg p-1 border border-neutral-700 z-50 shadow-lg">
                 <button 
                     onClick={() => setZoomLevel(Math.max(0.5, zoomLevel - 0.5))}
                     className="p-1 hover:bg-neutral-700 rounded text-neutral-400 hover:text-white"
@@ -188,7 +200,7 @@ export function Timeline({
                 >
                     <ZoomOut className="w-4 h-4" />
                 </button>
-                <span className="text-[10px] w-8 text-center text-neutral-500 font-mono">{Math.round(zoomLevel * 100)}%</span>
+                <span className="text-[10px] w-8 text-center text-neutral-500 font-mono select-none">{Math.round(zoomLevel * 100)}%</span>
                 <button 
                     onClick={() => setZoomLevel(Math.min(5, zoomLevel + 0.5))}
                     className="p-1 hover:bg-neutral-700 rounded text-neutral-400 hover:text-white"

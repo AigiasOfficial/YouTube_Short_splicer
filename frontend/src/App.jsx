@@ -111,7 +111,10 @@ function App() {
   };
 
   const handleProgress = (state) => {
-    if (!previewing && !loopingSegmentId) {
+    // During preview, we STILL need to update currentTime so the marker moves.
+    // But we avoid setting it if it would conflict with the loop logic seeking.
+    // Since checkLoops reads from REF, updating state here is safe for UI visualization.
+    if (!loopingSegmentId) {
         setCurrentTime(state.playedSeconds);
     }
   };
