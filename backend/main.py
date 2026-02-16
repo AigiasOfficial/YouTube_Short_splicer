@@ -75,13 +75,21 @@ async def process_video(
             start = seg['start']
             end = seg['end']
             
-            # Video filter: trim -> reset timestamps -> crop to 9:16 (vertical center)
-            # Crop: w=ih*(9/16), h=ih, x=(iw-ow)/2, y=0
-            # Ensure width is divisible by 2 for libx264
+            # Default to center (0.5) if not specified
+            # crop_offset is a float 0.0 (left) to 1.0 (right)
+            crop_offset = float(seg.get('cropOffset', 0.5))
+            
+            # Clamp offset between 0 and 1
+            crop_offset = max(0.0, min(1.0, crop_offset))
+            
+            # Video filter: trim -> reset timestamps -> crop to 9:16
+            # Crop width: w = ih * (9/16)
+            # Ensure width is divisible by 2 for libx264: trunc(w/2)*2
+            # Crop x: (iw - ow) * crop_offset
             
             filter_chain = (
                 f"[0:v]trim=start={start}:end={end},setpts=PTS-STARTPTS,"
-                f"crop=trunc(ih*9/16/2)*2:ih:(iw-ow)/2:0[v{i}];"
+                f"crop=trunc(ih*9/16/2)*2:ih:(iw-ow)*{crop_offset}:0[v{i}];"
                 f"[0:a]atrim=start={start}:end={end},asetpts=PTS-STARTPTS[a{i}]"
             )
             filter_complex_parts.append(filter_chain)
