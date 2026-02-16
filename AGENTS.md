@@ -6,6 +6,7 @@ This repository contains a full-stack application for splicing YouTube Shorts. I
 
 - **backend/**: Python FastAPI application handling video processing (ffmpeg).
 - **frontend/**: React 19 + Vite application for the user interface.
+- **tests/**: Automated integration tests.
 
 ## Backend (Python/FastAPI)
 
@@ -18,20 +19,17 @@ This repository contains a full-stack application for splicing YouTube Shorts. I
   ```bash
   cd backend && uvicorn main:app --reload --port 8000
   ```
-  *(Ensure `ffmpeg` is installed and accessible in the system PATH or `bin/` directory)*
+  *(Ensure `ffmpeg` and `ffprobe` are installed and accessible in the system PATH or `bin/` directory)*
 
 ### Testing
-- **Run All Tests:**
+- **Run Unit Tests:**
   ```bash
   cd backend && pytest
   ```
-- **Run Single Test File:**
+- **Run Integration Pipeline Tests:**
+  This suite generates synthetic 4K videos and tests the full splicing pipeline, including "No Audio" edge cases.
   ```bash
-  cd backend && pytest tests/test_main.py
-  ```
-- **Run Specific Test Case:**
-  ```bash
-  cd backend && pytest tests/test_main.py::test_specific_case
+  pytest tests/test_pipeline.py
   ```
 
 ### Code Style & Conventions

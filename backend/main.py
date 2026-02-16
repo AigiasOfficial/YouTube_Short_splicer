@@ -39,6 +39,38 @@ if not os.path.exists(FFMPEG_BIN):
 if not os.path.exists(FFMPEG_BIN):
     FFMPEG_BIN = "ffmpeg"
 
+# Determine FFprobe binary path based on OS
+if os.name == 'nt':
+    FFPROBE_BIN = os.path.join(PROJECT_ROOT, "bin", "ffprobe.exe")
+else:
+    FFPROBE_BIN = os.path.join(PROJECT_ROOT, "bin", "ffprobe")
+
+# Fallback: check if it's in the local bin directory (relative to CWD) if the above failed
+if not os.path.exists(FFPROBE_BIN):
+     FFPROBE_BIN = os.path.abspath(os.path.join("bin", "ffprobe.exe" if os.name == 'nt' else "ffprobe"))
+
+# Final Fallback: use system ffprobe
+if not os.path.exists(FFPROBE_BIN):
+    FFPROBE_BIN = "ffprobe"
+
+def has_audio_stream(file_path: str) -> bool:
+    try:
+        cmd = [
+            str(FFPROBE_BIN),
+            "-v", "error",
+            "-select_streams", "a",
+            "-show_entries", "stream=index",
+            "-of", "csv=p=0",
+            file_path
+        ]
+        # Run probe
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        # If output contains anything, we have audio streams
+        return len(result.stdout.strip()) > 0
+    except Exception as e:
+        print(f"Warning: FFprobe failed to detect audio: {e}")
+        return False
+
 @app.post("/process-video")
 async def process_video(
     file: UploadFile = File(...),
@@ -53,6 +85,10 @@ async def process_video(
         with open(input_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
             
+        # Check for audio stream
+        has_audio = has_audio_stream(input_path)
+        print(f"Audio stream detected: {has_audio}")
+            
         # 2. Parse segments
         # Format: [{"start": 10.5, "end": 20.0}, ...]
         segment_list = json.loads(segments)
@@ -61,12 +97,6 @@ async def process_video(
             return {"error": "No segments provided"}
             
         # 3. Construct FFmpeg command
-        # We need to trim each segment, crop it, and then concat them.
-        # Filter complex strategy:
-        # [0:v]trim=start=10:end=20,setpts=PTS-STARTPTS,crop=ih*(9/16):ih:(iw-ow)/2:0[v0];
-        # [0:a]atrim=start=10:end=20,asetpts=PTS-STARTPTS[a0];
-        # ...
-        # [v0][a0][v1][a1]...concat=n=N:v=1:a=1[outv][outa]
         
         filter_complex_parts = []
         inputs = []
@@ -87,17 +117,26 @@ async def process_video(
             # Ensure width is divisible by 2 for libx264: trunc(w/2)*2
             # Crop x: (iw - ow) * crop_offset
             
-            filter_chain = (
+            video_filter = (
                 f"[0:v]trim=start={start}:end={end},setpts=PTS-STARTPTS,"
-                f"crop=trunc(ih*9/16/2)*2:ih:(iw-ow)*{crop_offset}:0[v{i}];"
-                f"[0:a]atrim=start={start}:end={end},asetpts=PTS-STARTPTS[a{i}]"
+                f"crop=trunc(ih*9/16/2)*2:ih:(iw-ow)*{crop_offset}:0[v{i}]"
             )
-            filter_complex_parts.append(filter_chain)
-            inputs.extend([f"[v{i}]", f"[a{i}]"])
+            
+            if has_audio:
+                audio_filter = f"[0:a]atrim=start={start}:end={end},asetpts=PTS-STARTPTS[a{i}]"
+                filter_complex_parts.append(f"{video_filter};{audio_filter}")
+                inputs.extend([f"[v{i}]", f"[a{i}]"])
+            else:
+                filter_complex_parts.append(video_filter)
+                inputs.extend([f"[v{i}]"])
             
         # Concat part
         concat_inputs = "".join(inputs)
-        concat_part = f"{concat_inputs}concat=n={len(segment_list)}:v=1:a=1[outv][outa]"
+        
+        if has_audio:
+            concat_part = f"{concat_inputs}concat=n={len(segment_list)}:v=1:a=1[outv][outa]"
+        else:
+            concat_part = f"{concat_inputs}concat=n={len(segment_list)}:v=1:a=0[outv]"
         
         full_filter = ";".join(filter_complex_parts) + ";" + concat_part
         
@@ -108,13 +147,17 @@ async def process_video(
             "-i", input_path,
             "-filter_complex", full_filter,
             "-map", "[outv]",
-            "-map", "[outa]",
+        ]
+        
+        if has_audio:
+            cmd.extend(["-map", "[outa]", "-c:a", "aac"])
+            
+        cmd.extend([
             "-c:v", "libx264",
             "-preset", "fast",
             "-crf", "23",
-            "-c:a", "aac",
             output_path
-        ]
+        ])
         
         # Join command for debugging (be careful with spaces in paths)
         print(f"Running command: {cmd}")
