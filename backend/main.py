@@ -105,14 +105,11 @@ def build_atempo_filter(speed: float) -> str:
 
 def escape_text_for_drawtext(text: str) -> str:
     """Escape special characters for FFmpeg drawtext filter."""
-    replacements = [
-        ("'", "'\\''"),
-        (":", "\\:"),
-        ("'", "'\\''"),
-    ]
     result = text
-    for old, new in replacements:
-        result = result.replace(old, new)
+    result = result.replace("\\", "\\\\")
+    result = result.replace(":", "\\:")
+    result = result.replace("'", "'\\''")
+    result = result.replace("%", "\\%")
     return result
 
 
@@ -162,14 +159,14 @@ def build_title_filter(titles: List[dict], output_width: int = 1080, output_heig
             y = f"'if(lt(t,{start_time}),{output_height},if(lt(t,{start_time + slide_duration}),{output_height}-(t-{start_time})*({output_height}-({y_base}))/{slide_duration},{y_base}))'"
             alpha = f"'if(lt(t,{start_time}),0,1)'"
         elif animation == 'pop':
-            pop_duration = 0.25
-            scale = f"'if(lt(t,{start_time}),0,if(lt(t,{start_time + pop_duration}),1+0.3*sin((t-{start_time})/{pop_duration}*3.14159),1))'"
-            alpha = f"'if(lt(t,{start_time}),0,1)'"
+            # Quick fade-in (pop effect simulated via fast fade)
+            pop_duration = 0.15
+            alpha = f"'if(lt(t,{start_time}),0,if(lt(t,{start_time + pop_duration}),(t-{start_time})/{pop_duration},1))'"
             y = y_base
         elif animation == 'typewriter':
-            char_count = len(text)
-            type_duration = min(duration * 0.7, 1.5)
-            alpha = f"'if(lt(t,{start_time}),0,if(gt(t,{end_time}),0,1))'"
+            # Simple fade (true typewriter requires complex FFmpeg setup)
+            fade_in = min(0.5, duration / 3)
+            alpha = f"'if(lt(t,{start_time}),0,if(lt(t,{start_time + fade_in}),(t-{start_time})/{fade_in},1))'"
             y = y_base
         else:
             alpha = f"'if(lt(t,{start_time}),0,if(gt(t,{end_time}),0,1))'"

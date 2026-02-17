@@ -64,6 +64,7 @@ function App() {
     addSegment,
     updateSegment,
     deleteSegment,
+    clearSegments,
   } = useSegments();
 
   const {
@@ -138,7 +139,7 @@ function App() {
 
       setVideoFile(file);
       setVideoSrc(newSrc);
-      segments.length = 0;
+      clearSegments();
       setMarkStart(null);
       setError(null);
       setPlaying(false);
