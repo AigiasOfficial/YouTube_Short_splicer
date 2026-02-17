@@ -9,12 +9,14 @@ export function TitleTrack({
   selectedId,
 }) {
   return (
-    <div className="relative h-12 bg-[var(--bg-secondary)] border-b border-[var(--border-subtle)]">
+    <div className="h-12 bg-[var(--bg-secondary)] border-b border-[var(--border-subtle)] relative">
       {titles.map((title) => {
         const left = timeToPx(title.startTime);
-        const width = timeToPx(title.startTime + title.duration) - left;
+        const width = timeToPx(title.duration);
         const isActive = selectedId === title.id;
         const animation = titleAnimations.find((a) => a.id === title.animation);
+
+        if (!title.visible) return null;
 
         return (
           <div

@@ -1,14 +1,9 @@
-import { useState, useMemo } from 'react';
+import { useMemo } from 'react';
 import clsx from 'clsx';
 import { Trash2, Crop, Repeat, Play, Pause, Gauge, Type } from 'lucide-react';
-import { IconButton, Slider, Badge } from '../ui';
+import { IconButton, Badge } from '../ui';
 
-function formatTime(seconds) {
-  if (!seconds || isNaN(seconds)) return '00:00';
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${mins}:${secs.toString().padStart(2, '0')}`;
-}
+const SPEED_PRESETS = [0.5, 1, 1.5, 2, 3];
 
 export function SegmentItem({
   segment,
@@ -21,8 +16,6 @@ export function SegmentItem({
   onLoop,
   isLooping,
 }) {
-  const [showSpeedSlider, setShowSpeedSlider] = useState(false);
-  
   const startVal = useMemo(() => segment.start.toFixed(2), [segment.start]);
   const endVal = useMemo(() => segment.end.toFixed(2), [segment.end]);
   const durationVal = useMemo(() => (segment.end - segment.start).toFixed(2), [segment.start, segment.end]);
@@ -47,8 +40,6 @@ export function SegmentItem({
       onUpdate(segment.id, { end: segment.start + num });
     }
   };
-
-  const adjustedDuration = (segment.end - segment.start) / (segment.speed || 1);
 
   return (
     <div
@@ -97,13 +88,23 @@ export function SegmentItem({
             icon={<Gauge className="w-3 h-3" />}
             size="sm"
             variant={segment.speed !== 1 ? 'primary' : 'ghost'}
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowSpeedSlider(!showSpeedSlider);
-            }}
-            active={showSpeedSlider || segment.speed !== 1}
+            active={segment.speed !== 1}
             tooltip="Speed"
           />
+          
+          <select
+            value={segment.speed || 1}
+            onChange={(e) => {
+              e.stopPropagation();
+              onUpdate(segment.id, { speed: parseFloat(e.target.value) });
+            }}
+            onClick={(e) => e.stopPropagation()}
+            className="bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-[var(--radius-sm)] px-1 py-0.5 text-xs text-[var(--text-secondary)] outline-none cursor-pointer"
+          >
+            {SPEED_PRESETS.map((s) => (
+              <option key={s} value={s}>{s}x</option>
+            ))}
+          </select>
           
           <IconButton
             icon={<Trash2 className="w-3 h-3" />}
@@ -151,30 +152,7 @@ export function SegmentItem({
         </div>
       </div>
 
-      {showSpeedSlider && (
-        <div className="mt-2 pt-2 border-t border-[var(--border-subtle)]">
-          <Slider
-            label="Speed"
-            value={segment.speed || 1}
-            onChange={(v) => onUpdate(segment.id, { speed: v })}
-            min={0.25}
-            max={3}
-            step={0.25}
-            showValue
-            unit="x"
-          />
-          <div className="flex justify-between mt-1">
-            <span className="text-[9px] text-[var(--text-muted)]">
-              Original: {formatTime(segment.end - segment.start)}
-            </span>
-            <span className="text-[9px] text-[var(--accent-warning)]">
-              Adjusted: {formatTime(adjustedDuration)}
-            </span>
-          </div>
-        </div>
-      )}
-
-      {isActive && !showSpeedSlider && (
+      {isActive && (
         <div className="flex items-center gap-2 text-xs text-[var(--text-muted)] bg-[var(--bg-primary)] p-2 rounded-[var(--radius-sm)] mt-1">
           <Crop className="w-3 h-3" />
           <span>Crop: {(segment.cropOffset * 100).toFixed(0)}%</span>

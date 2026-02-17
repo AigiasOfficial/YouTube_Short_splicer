@@ -12,7 +12,7 @@ export function useAudioTracks() {
     },
   ]);
 
-  const addAudioTrack = useCallback((file) => {
+  const addAudioTrack = useCallback((file, duration = 0) => {
     const newTrack = {
       id: Date.now(),
       name: file.name,
@@ -22,6 +22,7 @@ export function useAudioTracks() {
       muted: false,
       solo: false,
       startTime: 0,
+      duration,
     };
     setAudioTracks((prev) => [...prev, newTrack]);
     return newTrack;
@@ -54,6 +55,23 @@ export function useAudioTracks() {
     );
   }, []);
 
+  const getAudioFilesForUpload = useCallback(() => {
+    return audioTracks.filter((track) => track.type === 'custom' && track.file);
+  }, [audioTracks]);
+
+  const getAudioConfig = useCallback(() => {
+    return audioTracks
+      .filter((track) => track.type === 'custom')
+      .map((track) => ({
+        id: track.id,
+        name: track.name,
+        startTime: track.startTime,
+        volume: track.volume,
+        muted: track.muted,
+        solo: track.solo,
+      }));
+  }, [audioTracks]);
+
   return {
     audioTracks,
     setAudioTracks,
@@ -62,5 +80,7 @@ export function useAudioTracks() {
     removeAudioTrack,
     toggleMute,
     toggleSolo,
+    getAudioFilesForUpload,
+    getAudioConfig,
   };
 }

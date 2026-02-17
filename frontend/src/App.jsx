@@ -24,7 +24,7 @@ import { VideoPlayer, CropOverlay, PlaybackControls } from './components/player'
 import { Header, Sidebar, SidebarHeader, SidebarContent, SidebarFooter } from './components/layout';
 import { Button, IconButton, Badge, Panel, Input, Slider } from './components/ui';
 import { StudioView } from './components/studio';
-import { useSegments, useKeyboardShortcuts } from './hooks';
+import { useSegments, useKeyboardShortcuts, useTitles, useAudioTracks } from './hooks';
 import './styles/theme.css';
 
 function formatTime(seconds) {
@@ -65,6 +65,27 @@ function App() {
     updateSegment,
     deleteSegment,
   } = useSegments();
+
+  const {
+    titles,
+    addTitle,
+    updateTitle,
+    deleteTitle,
+    toggleTitleVisibility,
+    selectedTitleId,
+    setSelectedTitleId,
+  } = useTitles();
+
+  const {
+    audioTracks,
+    addAudioTrack,
+    updateAudioTrack,
+    removeAudioTrack,
+    toggleMute,
+    toggleSolo,
+    getAudioFilesForUpload,
+    getAudioConfig,
+  } = useAudioTracks();
 
   useEffect(() => {
     if (!videoContainerRef.current) return;
@@ -335,6 +356,13 @@ function App() {
     const formData = new FormData();
     formData.append('file', videoFile);
     formData.append('segments', JSON.stringify(segments));
+    formData.append('titles', JSON.stringify(titles));
+    
+    const audioFiles = getAudioFilesForUpload();
+    audioFiles.forEach((track) => {
+      formData.append('audio_files', track.file);
+    });
+    formData.append('audio_config', JSON.stringify(getAudioConfig()));
 
     try {
       const response = await fetch('http://localhost:8000/process-video', {
@@ -342,7 +370,10 @@ function App() {
         body: formData,
       });
 
-      if (!response.ok) throw new Error('Processing failed');
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Processing failed');
+      }
 
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
@@ -355,7 +386,7 @@ function App() {
       setProgress(100);
     } catch (err) {
       console.error(err);
-      setError('Failed to generate video.');
+      setError(err.message || 'Failed to generate video.');
     } finally {
       setProcessing(false);
     }
@@ -667,11 +698,22 @@ function App() {
         ) : (
           <StudioView
             segments={segments}
-            duration={duration}
             currentTime={currentTime}
-            onSeek={seekTo}
             onExport={handleGenerate}
             processing={processing}
+            titles={titles}
+            onAddTitle={addTitle}
+            onUpdateTitle={updateTitle}
+            onDeleteTitle={deleteTitle}
+            onToggleTitleVisibility={toggleTitleVisibility}
+            selectedTitleId={selectedTitleId}
+            onSelectTitle={setSelectedTitleId}
+            audioTracks={audioTracks}
+            onAddAudioTrack={addAudioTrack}
+            onUpdateAudioTrack={updateAudioTrack}
+            onRemoveAudioTrack={removeAudioTrack}
+            onToggleMute={toggleMute}
+            onToggleSolo={toggleSolo}
           />
         )}
       </div>

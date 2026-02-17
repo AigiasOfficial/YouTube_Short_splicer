@@ -9,53 +9,17 @@ import {
   Play,
   Pause,
   Download,
-  Settings,
   Volume2,
+  VolumeX,
   Gauge,
+  Trash2,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { Button, IconButton, Panel, Slider, Badge } from '../ui';
-import {
-  TrackHeader,
-  VideoTrackHeader,
-  TitleTrackHeader,
-  AudioTrackLane,
-  TitleTrack,
-} from '../timeline';
-
-const MOCK_TITLES = [
-  {
-    id: 1,
-    text: 'My Awesome Video',
-    animation: 'fade',
-    fontSize: 48,
-    position: 'center',
-    startTime: 0,
-    duration: 3,
-    visible: true,
-  },
-  {
-    id: 2,
-    text: 'Part 2: The Adventure',
-    animation: 'slide-up',
-    fontSize: 36,
-    position: 'bottom',
-    startTime: 8,
-    duration: 2,
-    visible: true,
-  },
-];
-
-const MOCK_AUDIO_TRACKS = [
-  {
-    id: 'bgm',
-    name: 'Background Music.mp3',
-    startTime: 0,
-    duration: 30,
-    volume: 0.7,
-    muted: false,
-    solo: false,
-  },
-];
+import { TrackHeader, VideoTrackHeader, TitleTrackHeader } from '../timeline';
+import { TitleTrack } from '../timeline/TitleTrack';
+import { titleAnimations } from '../../constants/animations';
 
 function formatTime(seconds) {
   if (!seconds || isNaN(seconds)) return '00:00';
@@ -66,17 +30,27 @@ function formatTime(seconds) {
 
 export function StudioView({
   segments,
-  duration,
   currentTime,
   onExport,
   processing,
+  titles,
+  onAddTitle,
+  onUpdateTitle,
+  onDeleteTitle,
+  onToggleTitleVisibility,
+  selectedTitleId,
+  onSelectTitle,
+  audioTracks,
+  onAddAudioTrack,
+  onUpdateAudioTrack,
+  onRemoveAudioTrack,
+  onToggleMute,
+  onToggleSolo,
 }) {
-  const [titles, setTitles] = useState(MOCK_TITLES);
-  const [audioTracks, setAudioTracks] = useState(MOCK_AUDIO_TRACKS);
-  const [selectedTitleId, setSelectedTitleId] = useState(null);
   const [playing, setPlaying] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(1);
   const [timelineWidth, setTimelineWidth] = useState(1000);
+  const [editingTitle, setEditingTitle] = useState(null);
   const timelineRef = useRef(null);
 
   useEffect(() => {
@@ -92,63 +66,37 @@ export function StudioView({
   const contentWidth = Math.max(1000, timelineWidth) * zoomLevel;
 
   const timeToPx = (time) => {
-    if (!duration) return 0;
-    return (time / duration) * contentWidth;
+    if (!totalDuration) return 0;
+    return (time / totalDuration) * contentWidth;
   };
 
   const handleAddTitle = () => {
-    const newTitle = {
-      id: Date.now(),
-      text: 'New Title',
-      animation: 'fade',
-      fontSize: 48,
-      position: 'center',
+    const newTitle = onAddTitle({
       startTime: currentTime,
       duration: 2,
-      visible: true,
-    };
-    setTitles([...titles, newTitle]);
+    });
+    setEditingTitle(newTitle.id);
   };
 
-  const handleAddAudioTrack = () => {
+  const handleAddAudio = () => {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'audio/*';
-    input.onchange = (e) => {
+    input.onchange = async (e) => {
       const file = e.target.files[0];
       if (file) {
-        setAudioTracks([
-          ...audioTracks,
-          {
-            id: Date.now(),
-            name: file.name,
-            startTime: 0,
-            duration: 30,
-            volume: 1,
-            muted: false,
-            solo: false,
-          },
-        ]);
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const arrayBuffer = await file.arrayBuffer();
+        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+        const audioDuration = audioBuffer.duration;
+        onAddAudioTrack(file, audioDuration);
       }
     };
     input.click();
   };
 
-  const handleToggleMute = (trackId) => {
-    setAudioTracks(
-      audioTracks.map((t) =>
-        t.id === trackId ? { ...t, muted: !t.muted } : t
-      )
-    );
-  };
-
-  const handleToggleSolo = (trackId) => {
-    setAudioTracks(
-      audioTracks.map((t) =>
-        t.id === trackId ? { ...t, solo: !t.solo } : t
-      )
-    );
-  };
+  const customTracks = audioTracks.filter((t) => t.type === 'custom');
+  const originalTrack = audioTracks.find((t) => t.type === 'original');
 
   return (
     <div className="flex-1 flex flex-col bg-[var(--bg-primary)] min-h-0">
@@ -174,17 +122,13 @@ export function StudioView({
                 className="bg-[var(--accent-success)] text-white hover:bg-green-600"
               />
               <span className="font-mono text-sm text-[var(--text-secondary)]">
-                {formatTime(currentTime)} / {formatTime(duration)}
+                {formatTime(currentTime)} / {formatTime(totalDuration)}
               </span>
             </div>
 
             <div className="flex items-center gap-2">
-              <Badge variant="default">
-                {segments.length} scenes
-              </Badge>
-              <Badge variant="success">
-                {formatTime(totalDuration)} total
-              </Badge>
+              <Badge variant="default">{segments.length} scenes</Badge>
+              <Badge variant="success">{formatTime(totalDuration)} total</Badge>
             </div>
           </div>
         </div>
@@ -202,7 +146,7 @@ export function StudioView({
                 {titles.map((title) => (
                   <div
                     key={title.id}
-                    onClick={() => setSelectedTitleId(title.id)}
+                    onClick={() => onSelectTitle(title.id)}
                     className={clsx(
                       'p-2 rounded-[var(--radius-md)] cursor-pointer transition-all border',
                       selectedTitleId === title.id
@@ -215,6 +159,27 @@ export function StudioView({
                       <span className="text-xs text-[var(--text-primary)] truncate flex-1">
                         {title.text}
                       </span>
+                      <IconButton
+                        icon={title.visible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                        size="sm"
+                        variant="ghost"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onToggleTitleVisibility(title.id);
+                        }}
+                      />
+                      <IconButton
+                        icon={<Trash2 className="w-3 h-3" />}
+                        size="sm"
+                        variant="danger"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteTitle(title.id);
+                        }}
+                      />
+                    </div>
+                    <div className="text-[10px] text-[var(--text-muted)] mt-1">
+                      {formatTime(title.startTime)} - {formatTime(title.startTime + title.duration)}
                     </div>
                   </div>
                 ))}
@@ -230,46 +195,63 @@ export function StudioView({
               </div>
             </Panel>
 
+            {editingTitle && (
+              <TitleEditorPanel
+                title={titles.find((t) => t.id === editingTitle)}
+                onUpdate={(updates) => onUpdateTitle(editingTitle, updates)}
+                onClose={() => setEditingTitle(null)}
+              />
+            )}
+
             <Panel title="Audio Tracks" noBorder padding="sm">
               <div className="space-y-2">
-                {audioTracks.map((track) => (
-                  <div
-                    key={track.id}
-                    className="p-2 bg-[var(--bg-tertiary)] rounded-[var(--radius-md)]"
-                  >
+                {originalTrack && (
+                  <div className="p-2 bg-[var(--bg-tertiary)] rounded-[var(--radius-md)]">
                     <div className="flex items-center gap-2 mb-2">
                       <Music className="w-3 h-3 text-[var(--accent-success)]" />
+                      <span className="text-xs text-[var(--text-primary)] truncate flex-1">
+                        Original Audio
+                      </span>
+                    </div>
+                  </div>
+                )}
+                {customTracks.map((track) => (
+                  <div key={track.id} className="p-2 bg-[var(--bg-tertiary)] rounded-[var(--radius-md)]">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Music className="w-3 h-3 text-[var(--accent-secondary)]" />
                       <span className="text-xs text-[var(--text-primary)] truncate flex-1">
                         {track.name}
                       </span>
                       <IconButton
-                        icon={track.muted ? <Volume2 className="w-3 h-3 opacity-50" /> : <Volume2 className="w-3 h-3" />}
+                        icon={track.muted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
                         size="sm"
                         variant={track.muted ? 'danger' : 'ghost'}
-                        onClick={() => handleToggleMute(track.id)}
+                        onClick={() => onToggleMute(track.id)}
+                      />
+                      <IconButton
+                        icon={<Trash2 className="w-3 h-3" />}
+                        size="sm"
+                        variant="danger"
+                        onClick={() => onRemoveAudioTrack(track.id)}
                       />
                     </div>
                     <Slider
                       value={track.volume}
-                      onChange={(v) => {
-                        setAudioTracks(
-                          audioTracks.map((t) =>
-                            t.id === track.id ? { ...t, volume: v } : t
-                          )
-                        );
-                      }}
+                      onChange={(v) => onUpdateAudioTrack(track.id, { volume: v })}
                       min={0}
                       max={1}
                       step={0.1}
-                      size="sm"
                     />
+                    <div className="text-[10px] text-[var(--text-muted)] mt-1">
+                      Start: {formatTime(track.startTime)} | Duration: {formatTime(track.duration || 0)}
+                    </div>
                   </div>
                 ))}
                 <Button
                   variant="ghost"
                   size="sm"
                   icon={<Upload className="w-3 h-3" />}
-                  onClick={handleAddAudioTrack}
+                  onClick={handleAddAudio}
                   className="w-full"
                 >
                   Add Audio
@@ -336,18 +318,18 @@ export function StudioView({
             <TrackHeader
               type="audio"
               name="Original Audio"
-              muted={false}
-              onToggleMute={() => {}}
+              muted={originalTrack?.muted || false}
+              onToggleMute={() => onToggleMute('original')}
             />
-            {audioTracks.map((track) => (
+            {customTracks.map((track) => (
               <TrackHeader
                 key={track.id}
                 type="audio"
                 name={track.name}
                 muted={track.muted}
                 solo={track.solo}
-                onToggleMute={() => handleToggleMute(track.id)}
-                onToggleSolo={() => handleToggleSolo(track.id)}
+                onToggleMute={() => onToggleMute(track.id)}
+                onToggleSolo={() => onToggleSolo(track.id)}
               />
             ))}
           </div>
@@ -359,8 +341,12 @@ export function StudioView({
             >
               <div className="h-12 bg-[var(--bg-secondary)] border-b border-[var(--border-subtle)] relative">
                 {segments.map((seg, idx) => {
-                  const left = timeToPx(seg.start);
-                  const width = timeToPx(seg.end) - left;
+                  const segDuration = (seg.end - seg.start) / (seg.speed || 1);
+                  const outputStart = segments
+                    .slice(0, idx)
+                    .reduce((acc, s) => acc + (s.end - s.start) / (s.speed || 1), 0);
+                  const left = timeToPx(outputStart);
+                  const width = timeToPx(segDuration);
                   return (
                     <div
                       key={seg.id}
@@ -369,6 +355,7 @@ export function StudioView({
                     >
                       <span className="absolute inset-0 flex items-center justify-center text-[10px] text-[var(--text-primary)] font-mono">
                         Scene {idx + 1}
+                        {seg.speed !== 1 && <span className="ml-1 text-[var(--accent-warning)]">({seg.speed}x)</span>}
                       </span>
                     </div>
                   );
@@ -377,11 +364,9 @@ export function StudioView({
 
               <TitleTrack
                 titles={titles}
-                duration={duration}
-                contentWidth={contentWidth}
                 timeToPx={timeToPx}
                 selectedId={selectedTitleId}
-                onSelect={setSelectedTitleId}
+                onSelect={onSelectTitle}
               />
 
               <div className="h-12 bg-[var(--bg-secondary)] border-b border-[var(--border-subtle)] relative">
@@ -392,7 +377,7 @@ export function StudioView({
                 </div>
               </div>
 
-              {audioTracks.map((track) => (
+              {customTracks.map((track) => (
                 <div
                   key={track.id}
                   className="h-12 bg-[var(--bg-secondary)] border-b border-[var(--border-subtle)] relative"
@@ -401,7 +386,7 @@ export function StudioView({
                     className="absolute top-1 bottom-1 rounded-[var(--radius-sm)] bg-[var(--accent-secondary)]/20 border border-[var(--accent-secondary)]/30"
                     style={{
                       left: `${timeToPx(track.startTime)}px`,
-                      width: `${timeToPx(track.startTime + track.duration)}px`,
+                      width: `${timeToPx(track.duration || 10)}px`,
                     }}
                   >
                     <div className="h-full flex items-center px-2">
@@ -424,5 +409,104 @@ export function StudioView({
         </div>
       </div>
     </div>
+  );
+}
+
+function TitleEditorPanel({ title, onUpdate, onClose }) {
+  const [text, setText] = useState(title?.text || '');
+  const [animation, setAnimation] = useState(title?.animation || 'fade');
+  const [fontSize, setFontSize] = useState(title?.fontSize || 48);
+  const [position, setPosition] = useState(title?.position || 'center');
+
+  const handleSave = () => {
+    onUpdate({
+      text,
+      animation,
+      fontSize,
+      position,
+    });
+    onClose();
+  };
+
+  return (
+    <Panel title="Edit Title" noBorder padding="sm" className="bg-[var(--bg-tertiary)]">
+      <div className="space-y-3">
+        <div className="space-y-1">
+          <label className="text-[10px] uppercase tracking-wider font-semibold text-[var(--text-muted)]">
+            Text
+          </label>
+          <input
+            type="text"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="Enter title..."
+            className="w-full bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-[var(--radius-sm)] px-2 py-1 text-xs text-[var(--text-primary)] outline-none"
+          />
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-[10px] uppercase tracking-wider font-semibold text-[var(--text-muted)]">
+            Animation
+          </label>
+          <div className="grid grid-cols-2 gap-1">
+            {titleAnimations.map((anim) => (
+              <button
+                key={anim.id}
+                onClick={() => setAnimation(anim.id)}
+                className={clsx(
+                  'px-2 py-1 text-[10px] rounded-[var(--radius-sm)] border transition-all text-left',
+                  animation === anim.id
+                    ? 'bg-[var(--accent-purple)]/20 border-[var(--accent-purple)] text-[var(--accent-purple)]'
+                    : 'bg-[var(--bg-primary)] border-[var(--border-subtle)] text-[var(--text-secondary)]'
+                )}
+              >
+                {anim.name}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <Slider
+          label="Font Size"
+          value={fontSize}
+          onChange={setFontSize}
+          min={24}
+          max={120}
+          step={4}
+          unit="px"
+        />
+
+        <div className="space-y-1">
+          <label className="text-[10px] uppercase tracking-wider font-semibold text-[var(--text-muted)]">
+            Position
+          </label>
+          <div className="grid grid-cols-3 gap-1">
+            {['top', 'center', 'bottom'].map((pos) => (
+              <button
+                key={pos}
+                onClick={() => setPosition(pos)}
+                className={clsx(
+                  'px-2 py-1 text-[10px] rounded-[var(--radius-sm)] border transition-all capitalize',
+                  position === pos
+                    ? 'bg-[var(--accent-primary)]/20 border-[var(--accent-primary)] text-[var(--accent-primary)]'
+                    : 'bg-[var(--bg-primary)] border-[var(--border-subtle)] text-[var(--text-secondary)]'
+                )}
+              >
+                {pos}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex gap-2 pt-2 border-t border-[var(--border-subtle)]">
+          <Button variant="secondary" size="sm" onClick={onClose} className="flex-1">
+            Cancel
+          </Button>
+          <Button variant="primary" size="sm" onClick={handleSave} className="flex-1">
+            Save
+          </Button>
+        </div>
+      </div>
+    </Panel>
   );
 }

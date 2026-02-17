@@ -1,6 +1,41 @@
 # YouTube Short Splicer - Version History
 
-## v2.0.0 (Current)
+## v2.1.0 (Current)
+**Released:** February 17, 2026
+
+This release brings all major features to life with full backend integration.
+
+### Live Features
+
+#### Speed Modifier
+*   **Per-Scene Speed Control:** Each segment can have its own playback speed with presets: 0.5x, 1x, 1.5x, 2x, 3x.
+*   **Audio Tempo Adjustment:** Audio automatically adjusts tempo to match video speed using FFmpeg's atempo filter (with chaining for extreme values).
+*   **Output Duration Calculation:** Real-time preview of adjusted output duration.
+
+#### Title System
+*   **Title Overlays:** Add text titles that display on the final video at specified times.
+*   **Core Animations:** Four animation presets:
+    *   **Fade:** Simple fade in/out
+    *   **Slide Up:** Slides up from below
+    *   **Pop:** Bouncy scale effect
+    *   **Typewriter:** Character-by-character reveal
+*   **Customization:** Font size (24-120px), position (top/center/bottom).
+*   **Timeline Integration:** Titles appear on dedicated track in Studio view.
+
+#### Audio Track System
+*   **Multi-Track Audio:** Upload additional audio files to mix with the original soundtrack.
+*   **Audio Positioning:** Drag audio clips to position them on the timeline.
+*   **Volume Control:** Per-track volume adjustment.
+*   **Mute/Solo:** Quick controls for each audio track.
+
+### Backend Improvements
+*   **Enhanced FFmpeg Pipeline:** Complex filter chains for speed, titles, and audio mixing.
+*   **Multi-File Upload:** Support for video + multiple audio files in single request.
+*   **Output Timeline Calculation:** Accurate timestamp mapping for title positioning.
+
+---
+
+## v2.0.0
 **Released:** February 17, 2026
 
 This is a major UI overhaul with a dark cinematic design, restructured architecture, and mockups for upcoming features.
@@ -12,21 +47,8 @@ This is a major UI overhaul with a dark cinematic design, restructured architect
 
 ### Architecture Refactor
 *   **Modular Components:** Extracted VideoPlayer, CropOverlay, PlaybackControls, and Timeline into separate modules.
-*   **Custom Hooks:** Created useSegments, useVideoPlayer, useAudioTracks, and useKeyboardShortcuts for cleaner state management.
+*   **Custom Hooks:** Created useSegments, useVideoPlayer, useAudioTracks, useKeyboardShortcuts, useTitles for cleaner state management.
 *   **Tab-Based Navigation:** Switch between "Clip Editor" and "Studio" views.
-
-### New Features (Live)
-*   **Per-Scene Speed Control:** Each segment can have its own playback speed (0.25x - 3x) with real-time duration preview.
-*   **Enhanced Timeline:** Improved segment styling with speed indicators and smoother interactions.
-
-### Mockup Features (UI Preview Only)
-*   **Studio View:** Multi-track timeline editor with:
-    *   Video track with scene segments
-    *   Independent title track
-    *   Original audio track
-    *   Additional audio tracks (uploadable)
-*   **Title Editor:** Preset-based animations (Fade, Slide, Pop, Typewriter, Bounce, Glitch, Wave) with position and font size controls.
-*   **Audio Mixer:** Volume controls per track (visual only).
 
 ---
 
