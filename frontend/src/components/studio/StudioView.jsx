@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import clsx from 'clsx';
 import {
   Video,
@@ -69,17 +69,17 @@ export function StudioView({
 
   const contentWidth = Math.max(1000, timelineWidth) * zoomLevel;
 
-  const timeToPx = (time) => {
+  const timeToPx = useCallback((time) => {
     if (!totalDuration) return 0;
     return (time / totalDuration) * contentWidth;
-  };
+  }, [totalDuration, contentWidth]);
 
-  const pxToTime = (px) => {
+  const pxToTime = useCallback((px) => {
     if (!contentWidth) return 0;
     return (px / contentWidth) * totalDuration;
-  };
+  }, [contentWidth, totalDuration]);
 
-  const getSegmentAtOutputTime = (outTime) => {
+  const getSegmentAtOutputTime = useCallback((outTime) => {
     let elapsed = 0;
     for (const seg of segments) {
       const segDuration = (seg.end - seg.start) / (seg.speed || 1);
@@ -89,16 +89,16 @@ export function StudioView({
       elapsed += segDuration;
     }
     return { segment: null, sourceTime: 0 };
-  };
+  }, [segments]);
 
-  const getElapsedBeforeSegment = (segId) => {
+  const getElapsedBeforeSegment = useCallback((segId) => {
     let elapsed = 0;
     for (const seg of segments) {
       if (seg.id === segId) break;
       elapsed += (seg.end - seg.start) / (seg.speed || 1);
     }
     return elapsed;
-  };
+  }, [segments]);
 
   const handleDragStart = (trackId, type, e) => {
     e.preventDefault();
@@ -145,7 +145,7 @@ export function StudioView({
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [draggingTrack, dragType, contentWidth, totalDuration, audioTracks, onUpdateAudioTrack]);
+  }, [draggingTrack, dragType, contentWidth, totalDuration, audioTracks, onUpdateAudioTrack, pxToTime]);
 
   const handleAddTitle = () => {
     const newTitle = onAddTitle({
@@ -178,7 +178,6 @@ export function StudioView({
   useEffect(() => {
     if (playing && videoRef.current && segments.length > 0) {
       const checkSegment = () => {
-        const srcTime = videoRef.current.currentTime;
         const { segment } = getSegmentAtOutputTime(outputTime);
         if (segment && videoRef.current.playbackRate !== (segment.speed || 1)) {
           videoRef.current.playbackRate = segment.speed || 1;
@@ -187,7 +186,7 @@ export function StudioView({
       const interval = setInterval(checkSegment, 100);
       return () => clearInterval(interval);
     }
-  }, [playing, segments, outputTime]);
+  }, [playing, segments, outputTime, getSegmentAtOutputTime]);
 
   return (
     <div className="flex-1 flex flex-col bg-[var(--bg-primary)] min-h-0">
@@ -228,10 +227,10 @@ export function StudioView({
             </div>
           </div>
 
-          <div className="h-12 bg-[var(--bg-secondary)] border-t border-[var(--border-subtle)] px-4 flex items-center justify-between">
+          <div className="h-14 bg-[var(--bg-secondary)] border-t border-[var(--border-subtle)] px-4 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-3">
               <IconButton
-                icon={playing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
+                icon={playing ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
                 onClick={() => {
                   if (videoRef.current) {
                     if (playing) {
@@ -246,17 +245,39 @@ export function StudioView({
                   }
                   setPlaying(!playing);
                 }}
-                size="md"
+                size="lg"
                 variant="default"
-                className="bg-[var(--accent-success)] text-white hover:bg-green-600"
+                className="bg-[var(--accent-success)] text-white hover:bg-green-600 w-10 h-10"
               />
-              <span className="font-mono text-sm text-[var(--text-secondary)]">
-                {formatTime(outputTime)} / {formatTime(totalDuration)}
-              </span>
+              <div className="flex flex-col">
+                <span className="font-mono text-sm text-[var(--text-primary)] font-semibold">
+                  {formatTime(outputTime)} / {formatTime(totalDuration)}
+                </span>
+                <span className="text-[10px] text-[var(--text-muted)]">
+                  {segments.length} scenes
+                </span>
+              </div>
             </div>
-
-            <div className="flex items-center gap-2">
-              <Badge variant="default">{segments.length} scenes</Badge>
+            
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2 bg-[var(--bg-tertiary)] px-3 py-1.5 rounded-lg">
+                <Gauge className="w-4 h-4 text-[var(--text-muted)]" />
+                <span className="text-xs text-[var(--text-secondary)] font-medium">
+                  Zoom: {Math.round(zoomLevel * 100)}%
+                </span>
+                <button
+                  onClick={() => setZoomLevel(Math.max(0.5, zoomLevel - 0.5))}
+                  className="w-6 h-6 flex items-center justify-center rounded hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]"
+                >
+                  -
+                </button>
+                <button
+                  onClick={() => setZoomLevel(Math.min(4, zoomLevel + 0.5))}
+                  className="w-6 h-6 flex items-center justify-center rounded hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]"
+                >
+                  +
+                </button>
+              </div>
               <Badge variant="success">{formatTime(totalDuration)} total</Badge>
             </div>
           </div>
@@ -427,16 +448,21 @@ export function StudioView({
             Timeline
           </span>
           <div className="flex items-center gap-2 ml-auto">
+            <button
+              onClick={() => setZoomLevel(Math.max(0.5, zoomLevel - 0.5))}
+              className="w-6 h-6 flex items-center justify-center rounded hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] border border-[var(--border-subtle)]"
+            >
+              -
+            </button>
             <Badge variant="default" size="sm">
-              Zoom: {Math.round(zoomLevel * 100)}%
+              {Math.round(zoomLevel * 100)}%
             </Badge>
-            <IconButton
-              icon={<Gauge className="w-3 h-3" />}
-              size="sm"
-              variant="ghost"
-              onClick={() => setZoomLevel(zoomLevel === 1 ? 2 : 1)}
-              tooltip="Toggle Zoom"
-            />
+            <button
+              onClick={() => setZoomLevel(Math.min(4, zoomLevel + 0.5))}
+              className="w-6 h-6 flex items-center justify-center rounded hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] border border-[var(--border-subtle)]"
+            >
+              +
+            </button>
           </div>
         </div>
 

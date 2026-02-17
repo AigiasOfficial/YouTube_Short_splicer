@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import clsx from 'clsx';
 import { Type } from 'lucide-react';
-import { titleAnimations } from '../../constants/animations';
 
 export function TitleTrack({
   titles = [],
