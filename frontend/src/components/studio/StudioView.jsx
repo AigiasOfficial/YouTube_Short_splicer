@@ -175,6 +175,20 @@ export function StudioView({
   const customTracks = audioTracks.filter((t) => t.type === 'custom');
   const originalTrack = audioTracks.find((t) => t.type === 'original');
 
+  useEffect(() => {
+    if (playing && videoRef.current && segments.length > 0) {
+      const checkSegment = () => {
+        const srcTime = videoRef.current.currentTime;
+        const { segment } = getSegmentAtOutputTime(outputTime);
+        if (segment && videoRef.current.playbackRate !== (segment.speed || 1)) {
+          videoRef.current.playbackRate = segment.speed || 1;
+        }
+      };
+      const interval = setInterval(checkSegment, 100);
+      return () => clearInterval(interval);
+    }
+  }, [playing, segments, outputTime]);
+
   return (
     <div className="flex-1 flex flex-col bg-[var(--bg-primary)] min-h-0">
       <div className="flex-1 flex overflow-hidden">
@@ -480,8 +494,10 @@ export function StudioView({
               <TitleTrack
                 titles={titles}
                 timeToPx={timeToPx}
+                pxToTime={pxToTime}
                 selectedId={selectedTitleId}
                 onSelect={onSelectTitle}
+                onUpdate={onUpdateTitle}
               />
 
               <div className="h-12 bg-[var(--bg-secondary)] border-b border-[var(--border-subtle)] relative">
