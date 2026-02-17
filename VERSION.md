@@ -1,6 +1,36 @@
 # YouTube Short Splicer - Version History
 
-## v1.1.0 (Current)
+## v2.0.0 (Current)
+**Released:** February 17, 2026
+
+This is a major UI overhaul with a dark cinematic design, restructured architecture, and mockups for upcoming features.
+
+### New Design System
+*   **Dark Cinematic Theme:** Deep blacks (#0a0a0a), red accents (#ef4444), and subtle highlights inspired by professional video editors like DaVinci Resolve.
+*   **CSS Variables:** Centralized theming with custom properties for colors, shadows, and transitions.
+*   **Component Library:** New UI primitives (Button, Input, Panel, Slider, Badge, IconButton, Tabs) for consistent styling.
+
+### Architecture Refactor
+*   **Modular Components:** Extracted VideoPlayer, CropOverlay, PlaybackControls, and Timeline into separate modules.
+*   **Custom Hooks:** Created useSegments, useVideoPlayer, useAudioTracks, and useKeyboardShortcuts for cleaner state management.
+*   **Tab-Based Navigation:** Switch between "Clip Editor" and "Studio" views.
+
+### New Features (Live)
+*   **Per-Scene Speed Control:** Each segment can have its own playback speed (0.25x - 3x) with real-time duration preview.
+*   **Enhanced Timeline:** Improved segment styling with speed indicators and smoother interactions.
+
+### Mockup Features (UI Preview Only)
+*   **Studio View:** Multi-track timeline editor with:
+    *   Video track with scene segments
+    *   Independent title track
+    *   Original audio track
+    *   Additional audio tracks (uploadable)
+*   **Title Editor:** Preset-based animations (Fade, Slide, Pop, Typewriter, Bounce, Glitch, Wave) with position and font size controls.
+*   **Audio Mixer:** Volume controls per track (visual only).
+
+---
+
+## v1.1.0
 **Released:** February 16, 2026
 
 This release introduces significant UI/UX improvements, stability fixes for raw footage, and a new visual editing workflow.

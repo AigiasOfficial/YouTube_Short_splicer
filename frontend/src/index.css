@@ -1,7 +1,9 @@
+@import "./styles/theme.css";
+
 @import "tailwindcss";
 
 @layer base {
   body {
-    @apply bg-neutral-900 text-white h-screen overflow-hidden;
+    @apply bg-[var(--bg-primary)] text-[var(--text-primary)] h-screen overflow-hidden;
   }
 }
