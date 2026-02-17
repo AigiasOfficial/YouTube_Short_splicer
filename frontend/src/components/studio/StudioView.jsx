@@ -29,8 +29,8 @@ function formatTime(seconds) {
 }
 
 export function StudioView({
+  videoSrc,
   segments,
-  currentTime,
   onExport,
   processing,
   titles,
@@ -51,6 +51,10 @@ export function StudioView({
   const [zoomLevel, setZoomLevel] = useState(1);
   const [timelineWidth, setTimelineWidth] = useState(1000);
   const [editingTitle, setEditingTitle] = useState(null);
+  const [outputTime, setOutputTime] = useState(0);
+  const [draggingTrack, setDraggingTrack] = useState(null);
+  const [dragType, setDragType] = useState(null);
+  const videoRef = useRef(null);
   const timelineRef = useRef(null);
 
   useEffect(() => {
@@ -70,9 +74,82 @@ export function StudioView({
     return (time / totalDuration) * contentWidth;
   };
 
+  const pxToTime = (px) => {
+    if (!contentWidth) return 0;
+    return (px / contentWidth) * totalDuration;
+  };
+
+  const getSegmentAtOutputTime = (outTime) => {
+    let elapsed = 0;
+    for (const seg of segments) {
+      const segDuration = (seg.end - seg.start) / (seg.speed || 1);
+      if (elapsed + segDuration > outTime) {
+        return { segment: seg, sourceTime: seg.start + (outTime - elapsed) * (seg.speed || 1) };
+      }
+      elapsed += segDuration;
+    }
+    return { segment: null, sourceTime: 0 };
+  };
+
+  const getElapsedBeforeSegment = (segId) => {
+    let elapsed = 0;
+    for (const seg of segments) {
+      if (seg.id === segId) break;
+      elapsed += (seg.end - seg.start) / (seg.speed || 1);
+    }
+    return elapsed;
+  };
+
+  const handleDragStart = (trackId, type, e) => {
+    e.preventDefault();
+    setDraggingTrack(trackId);
+    setDragType(type);
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      if (!draggingTrack || !timelineRef.current) return;
+      const rect = timelineRef.current.getBoundingClientRect();
+      const scrollLeft = timelineRef.current.scrollLeft;
+      const x = e.clientX - rect.left + scrollLeft;
+      const time = pxToTime(x);
+      
+      const track = audioTracks.find(t => t.id === draggingTrack);
+      if (!track) return;
+
+      if (dragType === 'move') {
+        const newStartTime = Math.max(0, time - (track.duration || 10) / 2);
+        onUpdateAudioTrack(draggingTrack, { startTime: newStartTime });
+      } else if (dragType === 'resize-left') {
+        const newDuration = (track.startTime + (track.duration || 10)) - time;
+        const newStartTime = Math.max(0, time);
+        if (newDuration > 0.5) {
+          onUpdateAudioTrack(draggingTrack, { startTime: newStartTime, duration: newDuration });
+        }
+      } else if (dragType === 'resize-right') {
+        const newDuration = Math.max(0.5, time - track.startTime);
+        onUpdateAudioTrack(draggingTrack, { duration: newDuration });
+      }
+    };
+
+    const handleMouseUp = () => {
+      setDraggingTrack(null);
+      setDragType(null);
+    };
+
+    if (draggingTrack) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    }
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [draggingTrack, dragType, contentWidth, totalDuration, audioTracks, onUpdateAudioTrack]);
+
   const handleAddTitle = () => {
     const newTitle = onAddTitle({
-      startTime: currentTime,
+      startTime: outputTime,
       duration: 2,
     });
     setEditingTitle(newTitle.id);
@@ -104,11 +181,36 @@ export function StudioView({
         <div className="flex-1 flex flex-col min-w-0">
           <div className="flex-1 flex items-center justify-center bg-black relative">
             <div className="aspect-[9/16] h-full max-h-[80vh] bg-[var(--bg-tertiary)] rounded-lg overflow-hidden flex items-center justify-center border border-[var(--border-subtle)]">
-              <div className="text-center text-[var(--text-muted)]">
-                <Video className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                <p className="text-sm font-medium">Preview</p>
-                <p className="text-xs mt-1 opacity-70">Play to see your short</p>
-              </div>
+              {videoSrc ? (
+                <video
+                  ref={videoRef}
+                  src={videoSrc}
+                  className="w-full h-full object-cover"
+                  style={{ objectPosition: `${(getSegmentAtOutputTime(outputTime).segment?.cropOffset ?? 0.5) * 100}% 50%` }}
+                  onTimeUpdate={(e) => {
+                    const srcTime = e.target.currentTime;
+                    let elapsed = 0;
+                    for (let i = 0; i < segments.length; i++) {
+                      const seg = segments[i];
+                      const segDuration = (seg.end - seg.start) / (seg.speed || 1);
+                      if (srcTime >= seg.start && srcTime < seg.end) {
+                        const offsetInSegment = srcTime - seg.start;
+                        setOutputTime(elapsed + offsetInSegment * (seg.speed || 1));
+                        return;
+                      }
+                      elapsed += segDuration;
+                    }
+                  }}
+                  onEnded={() => setPlaying(false)}
+                  playsInline
+                />
+              ) : (
+                <div className="text-center text-[var(--text-muted)]">
+                  <Video className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                  <p className="text-sm font-medium">Preview</p>
+                  <p className="text-xs mt-1 opacity-70">Play to see your short</p>
+                </div>
+              )}
             </div>
           </div>
 
@@ -116,13 +218,26 @@ export function StudioView({
             <div className="flex items-center gap-3">
               <IconButton
                 icon={playing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
-                onClick={() => setPlaying(!playing)}
+                onClick={() => {
+                  if (videoRef.current) {
+                    if (playing) {
+                      videoRef.current.pause();
+                    } else {
+                      const { segment } = getSegmentAtOutputTime(outputTime);
+                      const srcTime = segment ? segment.start + (outputTime - getElapsedBeforeSegment(segment.id)) / (segment.speed || 1) : 0;
+                      videoRef.current.currentTime = srcTime;
+                      videoRef.current.playbackRate = segment?.speed || 1;
+                      videoRef.current.play();
+                    }
+                  }
+                  setPlaying(!playing);
+                }}
                 size="md"
                 variant="default"
                 className="bg-[var(--accent-success)] text-white hover:bg-green-600"
               />
               <span className="font-mono text-sm text-[var(--text-secondary)]">
-                {formatTime(currentTime)} / {formatTime(totalDuration)}
+                {formatTime(outputTime)} / {formatTime(totalDuration)}
               </span>
             </div>
 
@@ -383,24 +498,27 @@ export function StudioView({
                   className="h-12 bg-[var(--bg-secondary)] border-b border-[var(--border-subtle)] relative"
                 >
                   <div
-                    className="absolute top-1 bottom-1 rounded-[var(--radius-sm)] bg-[var(--accent-secondary)]/20 border border-[var(--accent-secondary)]/30"
+                    className="absolute top-1 bottom-1 rounded-[var(--radius-sm)] bg-[var(--accent-secondary)]/20 border border-[var(--accent-secondary)]/30 cursor-move"
                     style={{
                       left: `${timeToPx(track.startTime)}px`,
                       width: `${timeToPx(track.duration || 10)}px`,
                     }}
+                    onMouseDown={(e) => handleDragStart(track.id, 'move', e)}
                   >
+                    <div className="absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize hover:bg-[var(--accent-secondary)] rounded-l-sm" onMouseDown={(e) => { e.stopPropagation(); handleDragStart(track.id, 'resize-left', e); }} />
                     <div className="h-full flex items-center px-2">
                       <span className="text-[10px] text-[var(--accent-secondary)] truncate">
                         {track.name}
                       </span>
                     </div>
+                    <div className="absolute right-0 top-0 bottom-0 w-1 cursor-ew-resize hover:bg-[var(--accent-secondary)] rounded-r-sm" onMouseDown={(e) => { e.stopPropagation(); handleDragStart(track.id, 'resize-right', e); }} />
                   </div>
                 </div>
               ))}
 
               <div
                 className="absolute top-0 bottom-0 w-0.5 bg-white z-30 pointer-events-none shadow-[0_0_8px_rgba(255,255,255,0.6)]"
-                style={{ left: `${timeToPx(currentTime)}px` }}
+                style={{ left: `${timeToPx(outputTime)}px` }}
               >
                 <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-3 h-3 bg-white rounded-full shadow-lg" />
               </div>
@@ -417,6 +535,7 @@ function TitleEditorPanel({ title, onUpdate, onClose }) {
   const [animation, setAnimation] = useState(title?.animation || 'fade');
   const [fontSize, setFontSize] = useState(title?.fontSize || 48);
   const [position, setPosition] = useState(title?.position || 'center');
+  const [duration, setDuration] = useState(title?.duration || 2);
 
   const handleSave = () => {
     onUpdate({
@@ -424,6 +543,7 @@ function TitleEditorPanel({ title, onUpdate, onClose }) {
       animation,
       fontSize,
       position,
+      duration,
     });
     onClose();
   };
@@ -474,6 +594,16 @@ function TitleEditorPanel({ title, onUpdate, onClose }) {
           max={120}
           step={4}
           unit="px"
+        />
+
+        <Slider
+          label="Duration"
+          value={duration}
+          onChange={setDuration}
+          min={0.5}
+          max={10}
+          step={0.5}
+          unit="s"
         />
 
         <div className="space-y-1">

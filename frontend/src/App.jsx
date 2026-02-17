@@ -698,6 +698,7 @@ function App() {
           </>
         ) : (
           <StudioView
+            videoSrc={videoSrc}
             segments={segments}
             currentTime={currentTime}
             onExport={handleGenerate}
